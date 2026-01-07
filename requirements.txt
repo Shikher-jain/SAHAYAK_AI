@@ -1,3 +1,5 @@
+--extra-index-url https://download.pytorch.org/whl/cpu
+
 fastapi
 uvicorn[standard]
 pydantic
@@ -13,9 +15,9 @@ youtube-transcript-api
 beautifulsoup4
 sentence-transformers
 transformers
-torch
-torchaudio
-whisper
+torch==2.2.2+cpu
+torchaudio==2.2.2+cpu
+openai-whisper
 faiss-cpu
 qdrant-client
 numpy
