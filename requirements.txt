@@ -15,8 +15,8 @@ youtube-transcript-api
 beautifulsoup4
 sentence-transformers
 transformers
-torch==2.2.2
-torchaudio==2.2.2
+torch==2.9.1
+torchaudio==2.9.1
 openai-whisper
 faiss-cpu
 qdrant-client
