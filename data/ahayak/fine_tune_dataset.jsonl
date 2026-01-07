@@ -1,0 +1,9 @@
+{"messages":[
+ {"role":"system","content":"You are an expert teacher."},
+ {"role":"user","content":"Explain backpropagation."},
+ {"role":"assistant","content":"Backpropagation is... (detailed explanation, notes, examples)"}
+]}
+{"messages":[
+ {"role":"user","content":"Summarize this PDF section."},
+ {"role":"assistant","content":"The summary is..."}
+]}
