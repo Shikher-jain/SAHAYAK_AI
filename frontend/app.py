@@ -7,7 +7,7 @@ import streamlit as st
 
 PAGE_TITLE = "Sahayak - Unified AI Workspace"
 PAGE_ICON = "image.png"
-BACKEND_URL = os.getenv("BACKEND_URL", "http://localhost:8000")
+BACKEND_URL = os.getenv("BACKEND_URL", "http://127.0.0.1:8000")
 
 INGESTION_ROUTES: Dict[str, Tuple[str, str]] = {
     ".pdf": ("/ingest/pdf", "application/pdf"),
@@ -23,8 +23,17 @@ INGESTION_ROUTES: Dict[str, Tuple[str, str]] = {
 }
 
 
+def _init_backend_url() -> None:
+    if "backend_url" not in st.session_state:
+        st.session_state.backend_url = BACKEND_URL
+
+
+def _get_backend_url() -> str:
+    return st.session_state.get("backend_url", BACKEND_URL)
+
+
 def _call_backend(method: str, path: str, **kwargs) -> Tuple[bool, Optional[Dict], str]:
-    url = f"{BACKEND_URL}{path}"
+    url = f"{_get_backend_url()}{path}"
     try:
         resp = requests.request(method.upper(), url, timeout=kwargs.pop("timeout", 60), **kwargs)
     except requests.RequestException as exc:
@@ -82,14 +91,32 @@ def _backend_health() -> Tuple[str, str]:
 
 
 def _status_badge() -> None:
+    current_url = _get_backend_url()
     status, message = _backend_health()
-    st.sidebar.markdown("---")
     if status == "success":
-        st.sidebar.success(f"{message} @ {BACKEND_URL}")
+        st.sidebar.success(f"{message} @ {current_url}")
     elif status == "warning":
-        st.sidebar.warning(f"{message} @ {BACKEND_URL}")
+        st.sidebar.warning(f"{message} @ {current_url}")
     else:
-        st.sidebar.error(f"Backend unreachable @ {BACKEND_URL}\n{message}")
+        st.sidebar.error(f"Backend unreachable @ {current_url}\n{message}")
+
+
+def _sidebar_backend_controls() -> None:
+    current_url = _get_backend_url()
+    st.sidebar.markdown("### Backend API")
+    st.sidebar.markdown(f"[Open FastAPI docs]({current_url}/docs)")
+    new_url = st.sidebar.text_input(
+        "Base URL",
+        value=current_url,
+        key="sidebar_backend_url",
+        help="Override the backend host if running remotely",
+    )
+    if st.sidebar.button("Apply", key="sidebar_backend_apply"):
+        cleaned = new_url.strip()
+        if cleaned:
+            st.session_state.backend_url = cleaned
+            st.sidebar.success(f"Backend set to {cleaned}")
+    st.sidebar.markdown("---")
 
 
 def _show_response(payload: Optional[Dict], success_msg: str) -> None:
@@ -260,8 +287,10 @@ def mini_lab() -> None:
 
 
 def main() -> None:
+    _init_backend_url()
     st.set_page_config(page_title=PAGE_TITLE, page_icon=PAGE_ICON, layout="wide")
     hero_banner()
+    _sidebar_backend_controls()
     _status_badge()
     quick_ingest_and_ask()
     st.divider()
