@@ -21,7 +21,6 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-
 @app.get("/")
 def root():
     return {
@@ -36,16 +35,13 @@ def root():
         ],
     }
 
-
 @app.get("/health")
 def health():
     return {"status": "healthy"}
 
-
 @app.exception_handler(Exception)
 async def global_exception_handler(request: Request, exc: Exception):
     return JSONResponse(status_code=500, content={"detail": str(exc)})
-
 
 app.include_router(admin.router)
 app.include_router(ingestion.router, prefix="/ingest")
@@ -53,4 +49,3 @@ app.include_router(search.router, prefix="/search")
 app.include_router(summarize.router, prefix="/summaries")
 app.include_router(local_mode.router)
 app.include_router(finetune.router)
-

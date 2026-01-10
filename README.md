@@ -39,6 +39,38 @@ pip install -r requirements.txt
 uvicorn backend.main:app --reload --port 8000
 ```
 
+## Command reference
+
+```bash
+# enter repo root
+cd Sahayak_AI
+
+# setup virtual environment (Windows PowerShell activation shown)
+python -m venv .venv
+& .\.venv\Scripts\Activate.ps1
+
+# install dependencies (backend, frontend, tooling)
+pip install -r requirements.txt
+
+# run FastAPI backend with live reload on port 8000
+uvicorn backend.main:app --reload --port 8000
+
+# launch Streamlit UI
+streamlit run frontend/app.py
+
+# run targeted PDF-cleaning regression test
+python -m pytest backend/tests/test_pdf_cleaning.py
+
+# execute entire backend test suite
+python -m pytest backend/tests
+
+# (optional) build and start via Docker Compose
+docker compose up --build
+
+# deactivate environment when finished
+deactivate
+```
+
 Key routes:
 
 | Route prefix | Description |
@@ -98,6 +130,27 @@ All modes point at the same backend and share the same component library, so you
 ## Docker (optional)
 
 Use `docker compose up --build` after crafting your own compose file or reuse the ones from the legacy folders; the backend only needs `uvicorn backend.main:app` and the Streamlit frontend runs via `streamlit run frontend/app.py`.
+
+### Persisting Qdrant storage (fixes `Container filesystem detected` warning)
+
+Qdrant logs that warning whenever it writes collections to the container’s internal `./storage` path. Mount it to a durable location so vectors survive rebuilds and the warning disappears:
+
+```yaml
+services:
+	qdrant:
+		image: qdrant/qdrant:latest
+		ports:
+			- "6333:6333"  # REST
+			- "6334:6334"  # gRPC
+		volumes:
+			- qdrant_storage:/qdrant/storage
+
+volumes:
+	qdrant_storage:
+		external: true
+```
+
+Create the volume once with `docker volume create qdrant_storage` (or bind-mount a host folder, e.g. `C:\shikher_jain\COSCODE_SAHAYAK\qdrant_storage:/qdrant/storage`).
 
 ## Next steps
 

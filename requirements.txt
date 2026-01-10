@@ -10,6 +10,7 @@ pillow
 pytesseract
 pdfplumber
 PyMuPDF
+fpdf2
 moviepy
 youtube-transcript-api
 beautifulsoup4

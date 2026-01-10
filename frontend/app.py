@@ -178,7 +178,7 @@ def quick_ingest_and_ask() -> None:
     with col2:
         st.markdown("**Ask instantly**")
         question = st.text_area("Question", key="quick_question", height=120)
-        top_k = st.slider("Context chunks", min_value=1, max_value=10, value=4, key="quick_topk")
+        top_k = st.slider("Context chunks", min_value=1, max_value=10, value=1, key="quick_topk")
         if st.button("Get Answer", key="quick_answer_btn"):
             if not question.strip():
                 st.warning("Provide a question first.")
@@ -217,7 +217,7 @@ def workspace_tabs() -> None:
 
     with tabs[1]:
         query = st.text_input("Semantic search", key="tab_search_query")
-        top_k = st.slider("Hits", 1, 15, 5, key="tab_search_topk")
+        top_k = st.slider("Hits", 1, 15, 1, key="tab_search_topk")
         if st.button("Search", key="tab_search_btn") and query:
             ok, payload, detail = _vector_search(query, top_k)
             if ok and payload:

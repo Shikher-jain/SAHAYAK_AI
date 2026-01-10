@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import logging
-from typing import Dict, List
+import re
+import unicodedata
+from typing import Any, Dict, List
 
 import numpy as np
 from transformers import pipeline
@@ -16,6 +18,60 @@ local_db.init_db()
 logger = logging.getLogger("sahayak.vector_service")
 
 _summary_pipeline = None
+
+_SANITIZE_TRANSLATION = str.maketrans({
+    "\u2018": "'",
+    "\u2019": "'",
+    "\u201c": '"',
+    "\u201d": '"',
+    "\u2013": "-",
+    "\u2014": "-",
+})
+
+
+def _sanitize_output(text: str) -> str:
+    """Remove emojis/non-ASCII glyphs and normalize whitespace for API responses."""
+    if not text:
+        return ""
+
+    normalized = unicodedata.normalize("NFKC", text).translate(_SANITIZE_TRANSLATION)
+    ascii_text = normalized.encode("ascii", "ignore").decode("ascii")
+    ascii_text = ascii_text.replace("\r\n", "\n").replace("\r", "\n")
+    ascii_text = re.sub(r"[ \t]+", " ", ascii_text)
+    ascii_text = re.sub(r"\n{3,}", "\n\n", ascii_text)
+
+    cleaned_lines = []
+    previous_blank = False
+    for raw_line in ascii_text.split("\n"):
+        stripped_line = raw_line.strip()
+        if not stripped_line:
+            if cleaned_lines and not previous_blank:
+                cleaned_lines.append("")
+            previous_blank = True
+            continue
+        cleaned_lines.append(stripped_line)
+        previous_blank = False
+
+    cleaned = "\n".join(cleaned_lines).strip()
+    return cleaned
+
+
+def _sanitize_record(record: Dict[str, Any]) -> Dict[str, Any]:
+    sanitized = dict(record)
+    content = sanitized.get("content")
+    if isinstance(content, str):
+        sanitized["content"] = _sanitize_output(content)
+
+    metadata = sanitized.get("metadata")
+    if isinstance(metadata, dict):
+        cleaned_meta = {}
+        for key, value in metadata.items():
+            if isinstance(value, str):
+                cleaned_meta[key] = _sanitize_output(value)
+            else:
+                cleaned_meta[key] = value
+        sanitized["metadata"] = cleaned_meta
+    return sanitized
 
 
 def _load_summarizer():
@@ -88,7 +144,8 @@ def search_vectors(query: str, top_k: int = 5, target: str = "auto") -> List[Dic
         if key not in deduped or item.get("score", 0) > deduped[key].get("score", 0):
             deduped[key] = item
     sorted_hits = sorted(deduped.values(), key=lambda r: r.get("score", 0), reverse=True)
-    return sorted_hits[:top_k]
+    sanitized_hits = [_sanitize_record(hit) for hit in sorted_hits[:top_k]]
+    return sanitized_hits
 
 
 def _search_qdrant(query_embedding: np.ndarray, top_k: int) -> List[Dict[str, str]]:
@@ -122,10 +179,12 @@ def _search_local(query_embedding: np.ndarray, top_k: int) -> List[Dict[str, str
 def rag_answer(query: str, top_k: int = 5, target: str = "auto") -> Dict[str, str]:
     hits = search_vectors(query, top_k=top_k, target=target)
     context = "\n\n".join(hit.get("content", "") for hit in hits if hit.get("content"))
-    if not context:
+    sanitized_context = _sanitize_output(context)
+    sanitized_query = _sanitize_output(query)
+    if not sanitized_context:
         return {"answer": "No context available yet. Please ingest content first.", "sources": []}
-    synthesized = summarize_text(f"{context}\n\nQuestion: {query}")
-    return {"answer": synthesized, "context": context, "sources": hits}
+    synthesized = summarize_text(f"{sanitized_context}\n\nQuestion: {sanitized_query}")
+    return {"answer": synthesized, "context": sanitized_context, "sources": hits}
 
 
 def summarize_text(text: str, max_length: int = 160) -> str:
@@ -135,7 +194,9 @@ def summarize_text(text: str, max_length: int = 160) -> str:
         return ""
     if summarizer:
         result = summarizer(snippet[:1024], max_length=max_length, min_length=60, do_sample=False)
-        return result[0]["summary_text"]
+        raw_summary = result[0]["summary_text"]
     # Fallback: return first sentences
-    sentences = snippet.split(".")
-    return ".".join(sentences[:3]).strip()
+    else:
+        sentences = snippet.split(".")
+        raw_summary = ".".join(sentences[:3]).strip()
+    return _sanitize_output(raw_summary)
