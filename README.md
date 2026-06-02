@@ -1,171 +1,273 @@
-# Sahayak_AI
+# 🚀 Sahayak AI — Multimodal AI Learning Platform v2.0
 
-**Sahayak_AI** unifies the four historical Sahayak projects into a single multimodal AI assistant platform. It ships with:
+A production-grade, full-stack AI learning platform featuring **Multimodal RAG**, **JWT Authentication**, **Conversational Memory**, and **Multilingual Support**.
 
-- **Multimodal ingestion** (audio, video, image, PDF, text, URL, YouTube) from `Sahayak_09`.
-- **Qdrant-powered vector search** with an automatic **SQLite/FAISS fallback** via the local stack.
-- **Rich research workflow assets** (data pipelines, notebooks, scripts, dataset layouts) from `Sahayak`.
-- **Fine-tuning dataset utilities and lightweight HuggingFace UI** via the finetune stack.
+---
 
-Run everything locally or mix-and-match capabilities per deployment target.
+## 🏗️ Architecture
 
-## Repository layout 
-
-```
-Sahayak_AI/
-├── backend/                 # FastAPI platform API
-│   ├── ingestion/           # Multimodal processors
-│   ├── routers/             # /ingest, /search, /summaries, /local, /finetune, /admin
-│   ├── local_stack/         # SQLite + FAISS fallback pipeline
-│   └── finetune_stack/      # Stand-alone fine-tuning helper service
-├── frontend/
-│   └── app.py               # Unified Streamlit UI (multiple modes)
-├── data/
-│   ├── processed/, raw/     # Research datasets from Sahayak
-│   ├── finetune/            # Fine-tune dataset, pdf storage, sqlite db
-│   └── local/               # Local-mode pdf storage + sqlite db
-├── embeddings/, models/     # Vector indexes & model checkpoints
-├── scripts/                 # Preprocessing + embedding pipelines
-└── notebooks/demo.ipynb     # Research playground
+```text
+User
+  │
+  ▼
+Streamlit Frontend
+  │
+  ▼
+FastAPI Backend
+  │
+  ├── Qdrant (Primary Vector DB)
+  ├── FAISS (Fallback Vector DB)
+  ├── Groq LLM
+  ├── OpenAI LLM
+  └── HuggingFace Models
 ```
 
-## Backend usage
+---
+
+## ✨ Key Features
+
+### 📚 Multimodal RAG
+
+Supports ingestion and retrieval from:
+
+* PDF Documents
+* Images
+* Audio Files
+* Videos
+* Source Code (`.py`, `.js`, `.cpp`)
+* CSV / Excel Files
+* URLs
+* YouTube Videos
+
+### 🤖 Agentic AI Pipeline
+
+```text
+Query
+  ↓
+Query Rewrite
+  ↓
+Semantic Chunking
+  ↓
+Hybrid Retrieval
+  ↓
+Re-ranking
+  ↓
+LLM Response
+```
+
+### 🔐 Authentication & Authorization
+
+* JWT Authentication
+* User Registration & Login
+* Role-Based Access Control
+
+  * Student
+  * Teacher
+  * Admin
+* Secure Password Hashing with bcrypt
+
+### 🧠 Conversation Memory
+
+* LangChain Memory Integration
+* 5-Turn Sliding Window
+* Session-Aware Conversations
+
+### 🌍 Multilingual Support
+
+* English
+* Hindi
+* Spanish
+* French
+* German
+
+### 🎓 Learning Modes
+
+* Student Mode
+* Teacher Mode
+* Self-Learning Mode
+
+### 🚀 AI-Powered Features
+
+* Quiz Generator
+* AI Career Counselor
+* Knowledge Graph Generation
+* Learning Progress Tracking
+* Personalized Learning Roadmaps
+
+### 🛡️ Fault-Tolerant Design
+
+#### Vector Database Fallback
+
+```text
+Qdrant
+   ↓ (Failure)
+FAISS + SQLite
+```
+
+#### LLM Fallback Chain
+
+```text
+Groq (Llama 3 70B)
+        ↓
+      OpenAI
+        ↓
+   HuggingFace
+```
+
+---
+
+## 🛠️ Tech Stack
+
+| Layer           | Technology                               |
+| --------------- | ---------------------------------------- |
+| Frontend        | Streamlit                                |
+| Backend         | FastAPI + SQLAlchemy                     |
+| Vector Database | Qdrant + FAISS                           |
+| Embeddings      | sentence-transformers/all-MiniLM-L6-v2   |
+| LLMs            | Groq → OpenAI → HuggingFace              |
+| Authentication  | JWT + bcrypt + OAuth2                    |
+| Memory          | LangChain ConversationBufferWindowMemory |
+
+---
+
+## ⚡ Quick Start
+
+### 1. Clone Repository
 
 ```bash
-cd Sahayak_AI
-python -m venv .venv
-. .venv/Scripts/activate  # or source .venv/bin/activate on Linux/macOS
+git clone https://github.com/your-username/SAHAYAK_AI.git
+cd SAHAYAK_AI
+```
+
+### 2. Create Virtual Environment
+
+```bash
+python -m venv venv
+```
+
+### 3. Activate Environment
+
+#### Windows
+
+```powershell
+.\venv\Scripts\activate
+```
+
+#### Linux / macOS
+
+```bash
+source venv/bin/activate
+```
+
+### 4. Install Dependencies
+
+```bash
 pip install -r requirements.txt
+```
+
+---
+
+## ▶️ Run Backend
+
+```bash
 uvicorn backend.main:app --reload --port 8000
 ```
 
-## Command reference
+---
+
+## ▶️ Run Frontend
 
 ```bash
-# enter repo root
-cd Sahayak_AI
-
-# setup virtual environment (Windows PowerShell activation shown)
-python -m venv .venv
-& .\.venv\Scripts\Activate.ps1
-
-# install dependencies (backend, frontend, tooling)
-pip install -r requirements.txt
-
-# run FastAPI backend with live reload on port 8000
-uvicorn backend.main:app --reload --port 8000
-
-# launch Streamlit UI
 streamlit run frontend/app.py
-
-# run targeted PDF-cleaning regression test
-python -m pytest backend/tests/test_pdf_cleaning.py
-
-# execute entire backend test suite
-python -m pytest backend/tests
-
-# (optional) build and start via Docker Compose
-docker compose up --build
-
-# deactivate environment when finished
-deactivate
 ```
 
-Key routes:
+---
 
-| Route prefix | Description |
-|--------------|-------------|
-| `/ingest`    | Upload audio/video/image/pdf/text/url assets (auto-chunks + vectorizes). |
-| `/search`    | `/vector` for pure retrieval, `/rag` for retrieval-augmented answers. |
-| `/summaries` | Text summarization (uses transformers pipeline with graceful fallback). |
-| `/local`     | Stand-alone SQLite/FAISS uploader + `/local/ask` endpoint (legacy mode). |
-| `/finetune`  | Append/list LoRA/QLoRA training pairs backed by `data/finetune/fine_tune_dataset.jsonl`. |
-| `/admin`     | Qdrant health, collection metadata, and recent payloads. |
+## 🔑 Environment Variables
 
-The platform automatically prefers a running Qdrant instance; when it is unavailable the system stores vectors locally in SQLite/FAISS.
+Create a `.env` file in the project root:
 
-### Switching vector backends
+```env
+QDRANT_URL=your_qdrant_url
+QDRANT_API_KEY=your_qdrant_api_key
+QDRANT_COLLECTION=sahayak
 
-Every ingestion/search endpoint accepts `target` with values:
+GROQ_API_KEY=your_groq_api_key
 
-- `auto` *(default)* – Qdrant when available, otherwise SQLite/FAISS.
-- `qdrant` – force Qdrant (fails fast if unavailable).
-- `local` – skip Qdrant and store/query locally.
+JWT_SECRET_KEY=your_secret_key
+```
 
-> **Vector DB cheat-sheet** (pick what matches your deployment):
->
-> | DB | Best for |
-> | --- | --- |
-> | **FAISS** | Local experiments, PyTorch workflows |
-> | **Chroma** | Quick RAG prototyping |
-> | **Milvus** | Production-grade, self-hosted scale |
-> | **Qdrant** | Fast filtering + hybrid queries (default here) |
-> | **Pinecone** | Managed, zero-ops deployments |
-> | **Weaviate** | Schema-rich, hybrid search |
+---
 
-### Fine-tune dataset workflow
+## 🌐 API Routes
 
-1. Collect question/answer pairs via `/finetune/examples`.
-2. Inspect them with `/finetune/examples?limit=50` and `/finetune/stats`.
-3. Feed the resulting `data/finetune/fine_tune_dataset.jsonl` into your preferred PEFT/LoRA trainer (see scripts in `scripts/`).
+| Endpoint           | Description                         |
+| ------------------ | ----------------------------------- |
+| `/auth`            | Register, Login, JWT Authentication |
+| `/ingest`          | Multimodal Data Ingestion           |
+| `/search/rag`      | RAG Query with Memory               |
+| `/document`        | Summarization, Notes, Explanation   |
+| `/quiz`            | AI Quiz Generation                  |
+| `/counselor`       | AI Career Counselor                 |
+| `/roadmaps`        | Learning Roadmaps                   |
+| `/stats/dashboard` | Platform Analytics                  |
 
-## Frontend UI
+---
 
-`streamlit run frontend/app.py`
+## 🐳 Docker Deployment
 
-Pick the experience you need from the sidebar mode selector:
-
-- **Pro Dashboard** – tabbed navigation (Upload, Ask, Search, Recommend, Advanced, Roadmap) built from the legacy Sahayak_09 components.
-- **Simplified Upload** – the minimalist local workflow with health badges, metrics, and one-click Q&A.
-- **HuggingFace Mini** – a compact uploader/asker view ideal for Spaces or kiosk deployments.
-
-All modes point at the same backend and share the same component library, so you only have to maintain a single Streamlit file.
-
-## Data & research utilities
-
-- `scripts/preprocessing.py`, `scripts/embedding_pipeline.py`, `scripts/rag_query.py` retain the original research workflows.
-- `data/raw` & `data/processed` mirror the Sahayak dataset layout for reproducible experiments.
-- `models/` and `embeddings/` host pretrained + fine-tuned checkpoints and FAISS indexes.
-
-## Docker (optional)
-
-The repository now includes a ready-to-run `docker-compose.yml` with three services:
-
-- `qdrant` (vector DB)
-- `backend` (FastAPI on `:8000`)
-- `frontend` (Streamlit on `:8501`)
-
-Run everything side by side with:
+### Build & Start
 
 ```bash
 docker compose up --build
 ```
 
-### Persisting Qdrant storage (fixes `Container filesystem detected` warning)
+### Run in Background
 
-Qdrant logs that warning whenever it writes collections to the container’s internal `./storage` path. Mount it to a durable location so vectors survive rebuilds and the warning disappears:
-
-```yaml
-services:
-	qdrant:
-		image: qdrant/qdrant:latest
-		ports:
-			- "6333:6333"  # REST
-			- "6334:6334"  # gRPC
-		volumes:
-			- qdrant_storage:/qdrant/storage
-
-volumes:
-	qdrant_storage:
-		external: true
+```bash
+docker compose up -d
 ```
 
-Create the volume once with `docker volume create qdrant_storage` (or bind-mount a host folder, e.g. `C:\shikher_jain\COSCODE_SAHAYAK\qdrant_storage:/qdrant/storage`).
+---
 
-## Next steps
+## 📈 Future Roadmap
 
-- Point `QDRANT_URL`, `QDRANT_API_KEY`, and `QDRANT_COLLECTION` to your preferred Qdrant cluster (leave defaults for local `docker run qdrant/qdrant`).
-- Point ingestion endpoints at your multi-modal data lake.
-- Export the fine-tune dataset into any LoRA/QLoRA pipeline for bespoke teaching-assistant models.
-- Customize the Streamlit UI (either advanced or simplified) per deployment requirement.
+* Voice-to-Voice Conversations
+* Real-Time Collaborative Learning
+* Advanced Analytics Dashboard
+* Multi-Agent Learning Assistants
+* Mobile Application Support
+* LMS Integrations
+
+---
+
+## 🤝 Contributing
+
+Contributions are welcome.
+
+```bash
+fork → create branch → commit → push → pull request
 ```
+
+---
+
+## 📄 License
+
+MIT License
+
+---
+
+
+
+## 👨‍💻 Author
+
+### Shikher Jain
+
+Founder & Developer of **Sahayak AI**
+
+Building the future of AI-powered education through Multimodal AI, RAG Systems, and Intelligent Learning Platforms.
+
+* [GitHub](https://github.com/Shikher-jain)
+* [LinkedIn](https://www.linkedin.com/in/shikher-jain-0bb8a8259/)
+
+---
