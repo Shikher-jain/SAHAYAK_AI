@@ -19,11 +19,16 @@ def rag_search(
     top_k: int = 5,
     target: str = "auto",
     session_id: Optional[str] = Form(None),
+    learning_mode: Optional[str] = Form("student"),
+    user_mode: Optional[str] = Form(None),
 ) -> Dict[str, Any]:
     resolved_session = session_id.strip() if session_id and session_id.strip() else None
+    resolved_mode = (learning_mode or "student").strip()
     return vector_service.rag_answer(
         query,
         top_k=top_k,
         target=target,
         session_id=resolved_session,
+        learning_mode=resolved_mode,
+        user_mode=user_mode,
     )

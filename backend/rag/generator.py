@@ -1,33 +1,46 @@
+"""
+Sahayak AI — Answer Generator.
+
+Generates structured, learning-mode-aware answers using retrieved context.
+Backend priority: Groq → OpenAI → HuggingFace fallback.
+
+Every response includes:
+- Structured answer with headings, bullets, examples
+- Source citations (from retrieval metadata)
+- Recommendations (related topics / next steps)
+- Follow-up questions (to deepen understanding)
+"""
 from __future__ import annotations
 
 import os
-from typing import Dict, List
+import re
+from typing import Any, Dict, List, Optional
+
+from backend.rag.system_prompt import build_system_prompt, build_user_prompt, build_follow_up_prompt
 
 
 class Generator:
-    def __init__(self, model_name: str = "google/flan-t5-base") -> None:
-        self.model_name = model_name
-        self._pipeline = None
+    def __init__(self) -> None:
+        self._hf_model = None  # Seq2SeqGenerator from hf_models
         self._backend = None
 
-    def _get_pipeline(self):
-        if self._pipeline is None:
-            try:
-                from transformers import pipeline
+    # ------------------------------------------------------------------
+    # Backend selection
+    # ------------------------------------------------------------------
 
-                self._pipeline = pipeline("text2text-generation", model=self.model_name)
-            except Exception:
-                self._pipeline = None
-        return self._pipeline
+    def _get_hf_model(self):
+        """Load Flan-T5 via the shared singleton (AutoTokenizer + AutoModelForSeq2SeqLM)."""
+        if self._hf_model is None:
+            try:
+                from backend.common.hf_models import HFModels
+                self._hf_model = HFModels.get_text_generation()
+            except Exception as e:
+                print(f"Error loading HuggingFace model via HFModels: {e}")
+                self._hf_model = None
+        return self._hf_model
 
     def _select_backend(self) -> str:
-        """
-        Select LLM backend by priority:
-        1) Groq if GROQ_API_KEY exists
-        2) OpenAI if OPENAI_API_KEY exists
-        3) HuggingFace flan-t5 fallback
-        """
-
+        """Select LLM backend by priority: Groq → OpenAI → HuggingFace."""
         if self._backend:
             return self._backend
         if os.getenv("GROQ_API_KEY"):
@@ -38,6 +51,10 @@ class Generator:
             return self._backend
         self._backend = "hf"
         return self._backend
+
+    # ------------------------------------------------------------------
+    # Fallback answer (no LLM)
+    # ------------------------------------------------------------------
 
     def _fallback_answer(self, context: str, question: str) -> str:
         question_tokens = {token.lower() for token in question.split() if len(token) > 2}
@@ -55,9 +72,12 @@ class Generator:
             best = [scored[0][1]]
         return ". ".join(best).strip() + "."
 
-    def _generate_groq(self, prompt: str) -> str:
-        """Generate an answer using Groq chat completions."""
+    # ------------------------------------------------------------------
+    # LLM calls — now using the unified system prompt
+    # ------------------------------------------------------------------
 
+    def _generate_groq(self, system_prompt: str, user_prompt: str) -> str:
+        """Generate an answer using Groq chat completions with rich system prompt."""
         try:
             from groq import Groq
         except Exception:
@@ -67,18 +87,18 @@ class Generator:
             resp = client.chat.completions.create(
                 model=os.getenv("GROQ_MODEL", "llama-3.1-8b-instant"),
                 messages=[
-                    {"role": "system", "content": "You are a helpful assistant that answers using provided context."},
-                    {"role": "user", "content": prompt},
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_prompt},
                 ],
-                temperature=0.2,
+                temperature=0.3,
+                max_tokens=1500,
             )
             return (resp.choices[0].message.content or "").strip()
         except Exception:
             return ""
 
-    def _generate_openai(self, prompt: str) -> str:
-        """Generate an answer using OpenAI."""
-
+    def _generate_openai(self, system_prompt: str, user_prompt: str) -> str:
+        """Generate an answer using OpenAI with rich system prompt."""
         try:
             from openai import OpenAI
         except Exception:
@@ -89,56 +109,192 @@ class Generator:
             resp = client.chat.completions.create(
                 model=model,
                 messages=[
-                    {"role": "system", "content": "You are a helpful assistant that answers using provided context."},
-                    {"role": "user", "content": prompt},
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_prompt},
                 ],
-                temperature=0.2,
+                temperature=0.3,
+                max_tokens=1500,
             )
             return (resp.choices[0].message.content or "").strip()
         except Exception:
             return ""
 
-    def generate_answer(self, context: str, question: str, sources: List[Dict[str, str]] | None = None) -> Dict[str, List[Dict[str, str]] | str]:
-        prompt = (
-            "Answer the question using only the provided context. "
-            "If context is insufficient, say so briefly.\n\n"
-            f"Context:\n{context}\n\nQuestion: {question}\nAnswer:"
+    def _generate_follow_ups_llm(self, prompt: str) -> str:
+        """Lightweight LLM call just for follow-up question generation."""
+        backend = self._select_backend()
+        lightweight_system = (
+            "You are Sahayak AI. Generate exactly 3 follow-up questions. "
+            "Output only the numbered list, nothing else."
         )
         try:
-            backend = self._select_backend()
             if backend == "groq":
-                answer = self._generate_groq(prompt) or ""
+                from groq import Groq
+                client = Groq(api_key=os.getenv("GROQ_API_KEY"))
+                resp = client.chat.completions.create(
+                    model=os.getenv("GROQ_MODEL", "llama-3.1-8b-instant"),
+                    messages=[
+                        {"role": "system", "content": lightweight_system},
+                        {"role": "user", "content": prompt},
+                    ],
+                    temperature=0.5,
+                    max_tokens=200,
+                )
+                return (resp.choices[0].message.content or "").strip()
+            if backend == "openai":
+                from openai import OpenAI
+                client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+                model = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
+                resp = client.chat.completions.create(
+                    model=model,
+                    messages=[
+                        {"role": "system", "content": lightweight_system},
+                        {"role": "user", "content": prompt},
+                    ],
+                    temperature=0.5,
+                    max_tokens=200,
+                )
+                return (resp.choices[0].message.content or "").strip()
+        except Exception:
+            pass
+        return ""
+
+    # ------------------------------------------------------------------
+    # Response parsing — extract structured sections
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _extract_follow_ups(raw: str) -> List[str]:
+        """Parse numbered follow-up questions from LLM output."""
+        if not raw:
+            return []
+        lines = raw.strip().split("\n")
+        questions: List[str] = []
+        for line in lines:
+            cleaned = re.sub(r"^\d+[\.\)]\s*", "", line.strip())
+            cleaned = re.sub(r"^[-*•]\s*", "", cleaned)
+            if cleaned and len(cleaned) > 5:
+                questions.append(cleaned)
+        return questions[:5]
+
+    @staticmethod
+    def _extract_section(answer: str, header: str) -> str:
+        """Extract a section (between a header and the next header or end) from LLM output."""
+        pattern = rf"(?:^|\n)\s*{re.escape(header)}\s*[:\n]?\s*(.*?)(?=\n\s*(?:📚|💡|❓|Sources|Recommendations|Follow-up|##|\Z))"
+        match = re.search(pattern, answer, re.IGNORECASE | re.DOTALL)
+        return match.group(1).strip() if match else ""
+
+    # ------------------------------------------------------------------
+    # Main generation entry point
+    # ------------------------------------------------------------------
+
+    def generate_answer(
+        self,
+        context: str,
+        question: str,
+        sources: Optional[List[Dict[str, str]]] = None,
+        learning_mode: str = "student",
+        conversation_history: str = "",
+        user_mode: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """
+        Generate a structured, learning-mode-aware answer.
+
+        Parameters
+        ----------
+        user_mode : str, optional
+            High-level mode from modes.py (student/teacher/general).
+
+        Returns
+        -------
+        dict with keys:
+            answer      : str  — the main answer text
+            sources     : list — formatted citation dicts
+            recommendations : list — follow-up recommendation strings
+            follow_ups  : list — follow-up question strings
+        """
+        system_prompt = build_system_prompt(
+            learning_mode=learning_mode,
+            user_mode=user_mode,
+        )
+        user_prompt = build_user_prompt(
+            context=context,
+            question=question,
+            conversation_history=conversation_history,
+        )
+
+        try:
+            backend = self._select_backend()
+            answer = ""
+            if backend == "groq":
+                answer = self._generate_groq(system_prompt, user_prompt) or ""
                 if not answer:
                     backend = "openai" if os.getenv("OPENAI_API_KEY") else "hf"
-            if backend == "openai":
-                answer = self._generate_openai(prompt) or ""
+            if not answer and backend == "openai":
+                answer = self._generate_openai(system_prompt, user_prompt) or ""
                 if not answer:
                     backend = "hf"
-            if backend == "hf":
-                qa_pipeline = self._get_pipeline()
-                if qa_pipeline is None:
+            if not answer and backend == "hf":
+                hf_model = self._get_hf_model()
+                if hf_model is None:
                     answer = self._fallback_answer(context, question)
-                    return self._append_sources(answer, sources)
-                result = qa_pipeline(prompt, max_new_tokens=180, do_sample=False)
-                answer = result[0]["generated_text"].strip()
+                else:
+                    # Seq2SeqGenerator wrapper — pipeline-compatible interface
+                    simple_prompt = (
+                        f"Context:\n{context[:1500]}\n\n"
+                        f"Question: {question}\n"
+                        "Answer in a clear, structured way with examples:"
+                    )
+                    result = hf_model(simple_prompt, max_new_tokens=300, do_sample=False)
+                    answer = result[0]["generated_text"].strip()
             if not answer:
                 answer = self._fallback_answer(context, question)
-            return self._append_sources(answer, sources)
         except Exception:
             answer = self._fallback_answer(context, question)
-            return self._append_sources(answer, sources)
 
-    def _append_sources(self, answer: str, sources: List[Dict[str, str]] | None) -> Dict[str, List[Dict[str, str]] | str]:
+        # Generate follow-up questions if the answer doesn't already contain them
+        follow_ups = self._extract_follow_ups(self._extract_section(answer, "Follow-up"))
+        if not follow_ups:
+            follow_ups = self._extract_follow_ups(self._extract_section(answer, "❓"))
+        if not follow_ups and len(answer) > 50:
+            follow_up_prompt = build_follow_up_prompt(answer, question, learning_mode)
+            raw_follows = self._generate_follow_ups_llm(follow_up_prompt)
+            follow_ups = self._extract_follow_ups(raw_follows)
+
+        # Extract recommendations from the answer
+        recommendations_text = self._extract_section(answer, "Recommendations")
+        if not recommendations_text:
+            recommendations_text = self._extract_section(answer, "💡")
+        rec_items = [
+            line.strip().lstrip("-•* ").strip()
+            for line in recommendations_text.split("\n")
+            if line.strip() and len(line.strip()) > 3
+        ] if recommendations_text else []
+
+        formatted_sources = self._format_sources(sources or [])
+        return {
+            "answer": answer,
+            "sources": formatted_sources,
+            "recommendations": rec_items,
+            "follow_ups": follow_ups,
+        }
+
+    # ------------------------------------------------------------------
+    # Source formatting (unchanged from original)
+    # ------------------------------------------------------------------
+
+    def _append_sources(
+        self, answer: str, sources: List[Dict[str, str]] | None
+    ) -> Dict[str, List[Dict[str, str]] | str]:
         formatted_sources = self._format_sources(sources or [])
         if formatted_sources:
-            answer = f"{answer}\n\nSources:\n" + "\n".join(
+            answer = f"{answer}\n\n📚 Sources:\n" + "\n".join(
                 f"- {item['label']}" for item in formatted_sources
             )
         return {"answer": answer, "sources": formatted_sources}
 
     def _format_sources(self, sources: List[Dict[str, str]]) -> List[Dict[str, str]]:
         formatted: List[Dict[str, str]] = []
-        seen = set()
+        seen: set = set()
         for source in sources:
             label_parts = []
             origin = source.get("source") or source.get("url") or source.get("filename") or "unknown"

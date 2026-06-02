@@ -45,7 +45,9 @@ class QdrantStore:
 
     def _connect(self) -> None:
         try:
-            self._client = QdrantClient(url=self.url, api_key=self.api_key or None, timeout=5.0)
+            # Only pass API key over HTTPS — Qdrant warns on insecure connections
+            use_api_key = self.api_key if self.url.startswith("https") else None
+            self._client = QdrantClient(url=self.url, api_key=use_api_key, timeout=5.0)
             self._available = True
             self._ensure_collection()
         except Exception as exc:  # pragma: no cover - connectivity
@@ -100,22 +102,25 @@ class QdrantStore:
         ]
 
     def search(self, embedding: np.ndarray, top_k: int = 5) -> List[Dict[str, Any]]:
+        """Search for similar vectors using the current Qdrant API (query_points)."""
         if not self._client:
             raise RuntimeError("Qdrant client is not available")
         vector = embedding.tolist() if isinstance(embedding, np.ndarray) else embedding
-        results = self._client.search(
+        # qdrant-client 1.7+ replaced .search() with .query_points()
+        response = self._client.query_points(
             collection_name=self.collection_name,
-            query_vector=vector,
+            query=vector,
             limit=top_k,
             with_payload=True,
         )
+        # QueryResponse.points is List[ScoredPoint] — each has .id, .score, .payload
         hits: List[Dict[str, Any]] = []
-        for hit in results:
-            payload = hit.payload or {}
+        for point in response.points:
+            payload = point.payload or {}
             hits.append(
                 {
-                    "id": str(hit.id),
-                    "score": float(hit.score or 0.0),
+                    "id": str(point.id),
+                    "score": float(point.score or 0.0),
                     "metadata": payload,
                     "content": payload.get("content", ""),
                 }

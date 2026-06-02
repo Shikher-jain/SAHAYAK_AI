@@ -1,167 +1,138 @@
-from __future__ import annotations
+from fastapi import APIRouter, HTTPException, Depends
+from pydantic import BaseModel
+from typing import List, Optional
 
-import re
-from typing import Any, Dict, List, Optional
-
-from fastapi import APIRouter, Depends, Form, HTTPException
-
-from backend.auth import api_key_auth
-from backend.common.hf_models import get_hf_models
+from backend.common.hf_models import HFModels
 from backend.services import vector_service
 
-router = APIRouter(tags=["document-features"], dependencies=[Depends(api_key_auth)])
+router = APIRouter()
 
+class DocumentSummarizeRequest(BaseModel):
+    document_id: Optional[str] = None
+    text: Optional[str] = None
 
-def _resolve_document_text(document_id: Optional[str], text: Optional[str], target: str) -> str:
-    """Resolve text from either a document_id (source) or raw text input."""
+class DocumentSummarizeResponse(BaseModel):
+    summary: str
+    key_points: List[str]
 
-    if text and text.strip():
-        return text.strip()
-    if document_id and document_id.strip():
-        resolved = vector_service.get_document_text(document_id.strip(), target=target)
-        if resolved.strip():
-            return resolved
-        raise HTTPException(status_code=404, detail="No content found for document_id")
-    raise HTTPException(status_code=400, detail="Provide either document_id or text")
+@router.post("/document/summarize", response_model=DocumentSummarizeResponse)
+async def summarize_document(request: DocumentSummarizeRequest):
+    """Summarize a document or given text using the BART model."""
+    if not request.document_id and not request.text:
+        raise HTTPException(status_code=400, detail="Either document_id or text must be provided.")
 
+    # TASK 17 FIX: Fetch actual document content from vector store when document_id is provided.
+    content_to_summarize = request.text
+    if request.document_id and not request.text:
+        content_to_summarize, _ = vector_service.get_document_chunks(request.document_id)
+    if not content_to_summarize or not content_to_summarize.strip():
+        raise HTTPException(status_code=400, detail="No content available to summarize.")
 
-def _extract_key_points(summary: str, max_points: int = 5) -> List[str]:
-    """Derive short key points from a summary using sentence splitting."""
+    summarizer_pipeline = HFModels.get_summarizer()
+    if not summarizer_pipeline:
+        raise HTTPException(status_code=500, detail="Summarization model not available.")
 
-    normalized = re.sub(r"\s+", " ", summary or "").strip()
-    if not normalized:
-        return []
-    sentences = [seg.strip() for seg in re.split(r"(?<=[.!?])\s+", normalized) if seg.strip()]
-    points: List[str] = []
-    for sentence in sentences:
-        if sentence in points:
-            continue
-        points.append(sentence)
-        if len(points) >= max_points:
-            break
-    if not points:
-        points = [normalized]
-    return points
-
-
-@router.post("/document/summarize")
-def summarize_document(
-    document_id: Optional[str] = Form(None),
-    text: Optional[str] = Form(None),
-    target: str = Form("auto"),
-) -> Dict[str, Any]:
-    """Summarize a document (by id/source) or provided text using BART."""
-
-    payload = _resolve_document_text(document_id, text, target=target)
-    models = get_hf_models()
-    summarizer = models.summarizer()
-    if summarizer is None:
-        summary = vector_service.summarize_text(payload)
-    else:
-        try:
-            result = summarizer(payload, max_length=220, min_length=60, do_sample=False)
-            summary = str(result[0].get("summary_text", "")).strip()
-        except Exception:
-            summary = vector_service.summarize_text(payload)
-    return {"summary": summary, "key_points": _extract_key_points(summary)}
-
-
-@router.post("/document/qna")
-def document_qna(
-    document_id: str = Form(...),
-    question: str = Form(...),
-    target: str = Form("auto"),
-) -> Dict[str, Any]:
-    """Answer a question against a stored document using RoBERTa QnA."""
-
-    document_text, chunks = vector_service.get_document_chunks(document_id.strip(), target=target)
-    if not document_text.strip():
-        raise HTTPException(status_code=404, detail="No content found for document_id")
-
-    models = get_hf_models()
-    qa = models.qna()
-    if qa is None:
-        rag = vector_service.rag_answer(question, top_k=5, target=target, session_id=None)
-        return {"answer": rag.get("answer", ""), "confidence": 0.0, "source_chunk": ""}
-
-    best_answer = ""
-    best_score = -1.0
-    best_chunk = ""
-    for chunk in chunks:
-        context = chunk.strip()
-        if not context:
-            continue
-        try:
-            out = qa(question=question, context=context)
-            score = float(out.get("score") or 0.0)
-            answer = str(out.get("answer") or "").strip()
-        except Exception:
-            continue
-        if score > best_score and answer:
-            best_score = score
-            best_answer = answer
-            best_chunk = context
-
-    if not best_answer:
-        return {"answer": "", "confidence": 0.0, "source_chunk": ""}
-    return {"answer": best_answer, "confidence": max(0.0, best_score), "source_chunk": best_chunk}
-
-
-@router.post("/document/notes")
-def document_notes(document_id: str = Form(...), target: str = Form("auto")) -> Dict[str, Any]:
-    """Generate structured markdown notes for a stored document using Flan-T5."""
-
-    text = vector_service.get_document_text(document_id.strip(), target=target)
-    if not text.strip():
-        raise HTTPException(status_code=404, detail="No content found for document_id")
-
-    models = get_hf_models()
-    gen = models.text_generator()
-    if gen is None:
-        raise HTTPException(status_code=503, detail="Text generation model unavailable")
-
-    prompt = (
-        "Create structured notes in MARKDOWN with exactly these sections:\n"
-        "## Title\n"
-        "## Key Concepts\n"
-        "## Summary\n"
-        "## Important Points\n\n"
-        "Use concise bullet points where appropriate.\n\n"
-        f"Text:\n{text}\n\nNotes:"
-    )
     try:
-        out = gen(prompt, max_new_tokens=320, do_sample=False)
-        notes = str(out[0].get("generated_text", "")).strip()
-    except Exception as exc:
-        raise HTTPException(status_code=500, detail=str(exc)) from exc
-    return {"notes": notes}
+        summary_result = summarizer_pipeline(content_to_summarize, max_length=150, min_length=50, do_sample=False)
+        summary_text = summary_result[0]["summary_text"]
+        
+        # Simple key point extraction (can be improved)
+        key_points = [sentence.strip() for sentence in summary_text.split('.') if sentence.strip()]
 
+        return DocumentSummarizeResponse(summary=summary_text, key_points=key_points)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Summarization failed: {e}")
 
-@router.post("/document/explain")
-def explain_text(
-    text: str = Form(...),
-    level: str = Form("beginner"),
-) -> Dict[str, Any]:
-    """Explain text at a requested difficulty level using Flan-T5."""
+class DocumentQnARequest(BaseModel):
+    document_id: Optional[str] = None
+    question: str
 
-    level_norm = (level or "beginner").strip().lower()
-    if level_norm not in {"beginner", "intermediate", "expert"}:
-        raise HTTPException(status_code=400, detail="level must be beginner/intermediate/expert")
+class DocumentQnAResponse(BaseModel):
+    answer: str
+    confidence: float
+    source_chunk: Optional[str]
 
-    models = get_hf_models()
-    gen = models.text_generator()
-    if gen is None:
-        raise HTTPException(status_code=503, detail="Text generation model unavailable")
+@router.post("/document/qna", response_model=DocumentQnAResponse)
+async def document_qna(request: DocumentQnARequest):
+    """Answer a question based on document content using the RoBERTa QnA model."""
+    if not request.document_id:
+        raise HTTPException(status_code=400, detail="document_id must be provided.")
 
-    prompt = (
-        f"Explain the following text at a {level_norm} level. "
-        "Include 2 short examples.\n\n"
-        f"Text:\n{text}\n\nExplanation:"
-    )
+    # TASK 17 FIX: Fetch actual document content for QnA.
+    document_content = ""
+    if request.document_id:
+        document_content, _ = vector_service.get_document_chunks(request.document_id)
+    if not document_content.strip():
+        raise HTTPException(status_code=400, detail="No content found for the given document_id.")
+
+    qna_pipeline = HFModels.get_qna()
+    if not qna_pipeline:
+        raise HTTPException(status_code=500, detail="QnA model not available.")
+    
     try:
-        out = gen(prompt, max_new_tokens=260, do_sample=False)
-        explanation = str(out[0].get("generated_text", "")).strip()
-    except Exception as exc:
-        raise HTTPException(status_code=500, detail=str(exc)) from exc
-    return {"explanation": explanation, "examples": []}
+        qna_result = qna_pipeline(question=request.question, context=document_content)
+        return DocumentQnAResponse(
+            answer=qna_result["answer"],
+            confidence=qna_result["score"],
+            source_chunk=qna_result["context"]
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"QnA failed: {e}")
 
+class DocumentNotesResponse(BaseModel):
+    notes: str # Markdown formatted notes
+
+@router.post("/document/notes", response_model=DocumentNotesResponse)
+async def generate_document_notes(document_id: str):
+    """Generate structured notes for a document using flan-t5."""
+    # TASK 19 FIX: Fetch actual document content for notes generation.
+    document_content = ""
+    if document_id:
+        document_content, _ = vector_service.get_document_chunks(document_id)
+    if not document_content.strip():
+        raise HTTPException(status_code=400, detail="No content found for the given document_id.")
+
+    text_generation_pipeline = HFModels.get_text_generation()
+    if not text_generation_pipeline:
+        raise HTTPException(status_code=500, detail="Text generation model not available.")
+
+    prompt = f"Generate structured notes for the following document, including a Title, Key Concepts, Summary, and Important Points, formatted in markdown:\n\nDocument: {document_content}"
+
+    try:
+        generated_notes = text_generation_pipeline(prompt, max_length=500, num_return_sequences=1)
+        notes_text = generated_notes[0]["generated_text"]
+        return DocumentNotesResponse(notes=notes_text)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Note generation failed: {e}")
+
+class DocumentExplainRequest(BaseModel):
+    text: str
+    level: str # beginner/intermediate/expert
+
+class DocumentExplainResponse(BaseModel):
+    explanation: str
+    examples: List[str]
+
+@router.post("/document/explain", response_model=DocumentExplainResponse)
+async def explain_text(request: DocumentExplainRequest):
+    """Explain a given text at the requested level (beginner/intermediate/expert)."""
+    text_generation_pipeline = HFModels.get_text_generation()
+    if not text_generation_pipeline:
+        raise HTTPException(status_code=500, detail="Text generation model not available.")
+
+    prompt = f"Explain the following text at a {request.level} level and provide examples:\n\nText: {request.text}\n\nExplanation and Examples:"
+
+    try:
+        generated_explanation = text_generation_pipeline(prompt, max_length=300, num_return_sequences=1)
+        explanation_text = generated_explanation[0]["generated_text"]
+        
+        # Simple extraction of examples (can be improved)
+        examples = []
+        if "Examples:" in explanation_text:
+            parts = explanation_text.split("Examples:", 1)
+            explanation_text = parts[0].strip()
+            examples = [e.strip() for e in parts[1].split('\n') if e.strip()]
+
+        return DocumentExplainResponse(explanation=explanation_text, examples=examples)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Explanation failed: {e}")

@@ -18,23 +18,33 @@ langchain-community==0.0.20
 openai
 groq
 
-# Vector DB (choose one)
+# Vector DB
 qdrant-client
-# faiss-cpu   <-- comment this for now
+faiss-cpu
+
+# Auth / Security
+python-jose[cryptography]
+passlib[bcrypt]
+bcrypt
+sqlalchemy
 
 # Data Processing
 numpy<2.0
 pandas
 openpyxl
-bcrypt
-python-jose
 
-# Document Processing (lean)
-pytesseract
-pdfplumber
-PyMuPDF
+# Frontend & Visualization
+streamlit
+streamlit-option-menu
+streamlit-extras
+plotly
+altair
 
 # Utilities
+python-dateutil
+networkx
+scikit-learn
+gtts
 tqdm
 requests
 httpx
@@ -42,7 +52,15 @@ beautifulsoup4
 langdetect
 sentencepiece
 
-# Optional (only if needed)
+# Document Processing (lean)
+pytesseract
+pdfplumber
+PyMuPDF
+
+# Audio (optional)
 openai-whisper
 gTTS
-streamlit
+
+# Fine-tuning (optional, GPU recommended)
+peft
+bitsandbytes

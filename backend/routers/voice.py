@@ -1,93 +1,87 @@
-from __future__ import annotations
+from typing import List, Optional
 
-import base64
+from fastapi import APIRouter, File, UploadFile, HTTPException, Response
+from pydantic import BaseModel
 from io import BytesIO
-from typing import Any, Dict, Optional
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
-from fastapi.responses import Response
-
-from backend.auth import api_key_auth
-from backend.ingestion.audio import transcribe_audio
+from backend.ingestion.audio import transcribe_audio as whisper_transcribe
 from backend.services import vector_service
-from backend.utils.file_utils import create_named_temp_from_bytes, safe_unlink
+from gtts import gTTS
 
-router = APIRouter(tags=["voice"], dependencies=[Depends(api_key_auth)])
+router = APIRouter()
 
+class TranscribeResponse(BaseModel):
+    transcribed_text: str
 
-async def _persist_upload(file: UploadFile) -> str:
-    """Persist an uploaded file to a temp location and return the path."""
-
-    payload = await file.read()
-    tmp_path = create_named_temp_from_bytes(payload, original_name=file.filename or "audio.wav")
-    return str(tmp_path)
-
-
-@router.post("/voice/transcribe")
-async def transcribe_endpoint(file: UploadFile = File(...)) -> Dict[str, str]:
-    """Transcribe audio into text using the existing Whisper ingestion code."""
-
-    tmp_path = await _persist_upload(file)
+@router.post("/transcribe", response_model=TranscribeResponse)
+async def transcribe_voice(audio_file: UploadFile = File(...)):
+    """Transcribes an audio file using the existing Whisper model."""
+    if not audio_file.content_type.startswith("audio/"):
+        raise HTTPException(status_code=400, detail="Invalid file type. Only audio files are supported.")
+    
     try:
-        text = transcribe_audio(tmp_path)
-        return {"text": text}
-    finally:
-        safe_unlink(tmp_path)
+        audio_bytes = await audio_file.read()
+        # Assuming whisper_transcribe takes bytes and returns text
+        transcribed_text = whisper_transcribe(audio_bytes)
+        return TranscribeResponse(transcribed_text=transcribed_text)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Audio transcription failed: {e}")
 
+class SpeakRequest(BaseModel):
+    text: str
 
-@router.post("/voice/speak")
-def speak_endpoint(text: str = Form(...), lang: str = Form("en")) -> Response:
-    """Convert input text to speech and return mp3 bytes."""
-
+@router.post("/speak", response_class=Response, responses={200: {"content": {"audio/mpeg": {}}}})  # Correct response class and media type
+async def speak_text(request: SpeakRequest):
+    """Converts text to speech using the gTTS library and returns MP3 audio bytes."""
     try:
-        from gtts import gTTS
-    except Exception as exc:
-        raise HTTPException(status_code=503, detail="gTTS dependency is unavailable") from exc
+        tts = gTTS(text=request.text, lang="en") # Default to English
+        audio_buffer = BytesIO()
+        tts.write_to_fp(audio_buffer)
+        audio_buffer.seek(0)
+        return Response(content=audio_buffer.read(), media_type="audio/mpeg")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Text to speech failed: {e}")
 
-    buffer = BytesIO()
+class VoiceQueryResponse(BaseModel):
+    text_answer: str
+    audio_answer: str  # Base64 encoded audio
+    sources: list
+
+@router.post("/voice_query", response_model=VoiceQueryResponse)
+async def voice_query(audio_file: UploadFile = File(...), session_id: Optional[str] = None, language: str = "en"):
+    """Pipeline: transcribe audio -> RAG query -> speak answer."""
+    if not audio_file.content_type.startswith("audio/"):
+        raise HTTPException(status_code=400, detail="Invalid file type. Only audio files are supported.")
+    
     try:
-        tts = gTTS(text=text, lang=lang)
-        tts.write_to_fp(buffer)
-    except Exception as exc:
-        raise HTTPException(status_code=500, detail=str(exc)) from exc
-    audio_bytes = buffer.getvalue()
-    return Response(content=audio_bytes, media_type="audio/mpeg")
+        # 1. Transcribe audio
+        audio_bytes = await audio_file.read()
+        transcribed_text = whisper_transcribe(audio_bytes)
 
+        # 2. RAG query via the unified vector service
+        rag_response = vector_service.rag_answer(
+            query=transcribed_text,
+            top_k=5,
+            session_id=session_id,
+        )
+        text_answer = rag_response.get("answer", "")
+        sources = rag_response.get("sources", [])
 
-@router.post("/voice/voice_query")
-async def voice_query(
-    file: UploadFile = File(...),
-    session_id: str = Form(...),
-    top_k: int = Form(5),
-    target: str = Form("auto"),
-) -> Dict[str, Any]:
-    """Voice pipeline: transcribe → RAG query → speak answer."""
+        # 3. Speak answer with optional language support
+        tts_lang = language if language in {"en", "hi", "es", "fr", "de"} else "en"
+        tts = gTTS(text=text_answer, lang=tts_lang)
+        audio_buffer = BytesIO()
+        tts.write_to_fp(audio_buffer)
+        audio_buffer.seek(0)
+        
+        # For now, returning audio as base64 string. In a real app, you might save it and return a URL.
+        import base64
+        audio_answer_base64 = base64.b64encode(audio_buffer.read()).decode("utf-8")
 
-    tmp_path = await _persist_upload(file)
-    try:
-        query_text = transcribe_audio(tmp_path)
-    finally:
-        safe_unlink(tmp_path)
-
-    rag = vector_service.rag_answer(query_text, top_k=top_k, target=target, session_id=session_id)
-    answer_text = str(rag.get("answer") or "")
-    sources = rag.get("sources") or []
-
-    audio_b64: Optional[str] = None
-    try:
-        from gtts import gTTS
-
-        buffer = BytesIO()
-        gTTS(text=answer_text or " ", lang="en").write_to_fp(buffer)
-        audio_b64 = base64.b64encode(buffer.getvalue()).decode("ascii")
-    except Exception:
-        audio_b64 = None
-
-    return {
-        "text_answer": answer_text,
-        "audio_answer": audio_b64,
-        "sources": sources,
-        "query": query_text,
-        "session_id": session_id,
-    }
-
+        return VoiceQueryResponse(
+            text_answer=text_answer,
+            audio_answer=audio_answer_base64,
+            sources=sources
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Voice query pipeline failed: {e}")

@@ -1,130 +1,231 @@
+"""  
+Sahayak AI — HuggingFace Model Registry (Singleton).
+
+Loads and caches ML models on first use.  Every getter:
+- Uses @lru_cache so the model is loaded exactly once per process
+- Reads the model name from an env var (configurable)
+- Returns None with a graceful fallback if loading fails
+
+Models managed here:
+  * Summarization  — facebook/bart-large-cnn
+  * QnA            — deepset/roberta-base-squad2
+  * Translation    — Helsinki-NLP/opus-mt-en-ROMANCE
+  * Text generation — google/flan-t5-base (seq2seq via AutoModelForSeq2SeqLM)
+  * Sentiment      — distilbert-base-uncased-finetuned-sst-2
+  * Classification — facebook/bart-large-mnli
+  * NER            — dbmdz/bert-large-cased-finetuned-conll03
+  * Image class    — google/vit-base-patch16-224
+"""
 from __future__ import annotations
 
-import logging
 import os
-from dataclasses import dataclass
-from threading import Lock
-from typing import Any, Optional
+from functools import lru_cache
+from typing import Any, Dict, List, Optional, Union
 
-logger = logging.getLogger("sahayak.hf_models")
-
-
-@dataclass(frozen=True)
-class HFModelConfig:
-    """HuggingFace model ids used across Sahayak."""
-
-    summarizer: str
-    qna: str
-    text_generator: str
+import torch
+from transformers import (
+    pipeline,
+    Pipeline,
+    AutoTokenizer,
+    AutoModelForSeq2SeqLM,
+)
 
 
-def _resolve_config() -> HFModelConfig:
-    """
-    Resolve model ids from env vars with sensible defaults.
+# ---------------------------------------------------------------------------
+# Lightweight seq2seq wrapper — replaces pipeline("text2text-generation")
+# which fails on some transformers versions.
+# ---------------------------------------------------------------------------
 
-    Env vars:
-    - HF_MODEL_SUMMARIZER
-    - HF_MODEL_QNA
-    - HF_MODEL_TEXT_GENERATOR
-    """
+class Seq2SeqGenerator:
+    """Wraps AutoTokenizer + AutoModelForSeq2SeqLM with a pipeline-like __call__."""
 
-    return HFModelConfig(
-        summarizer=os.getenv("HF_MODEL_SUMMARIZER", "facebook/bart-large-cnn"),
-        qna=os.getenv("HF_MODEL_QNA", "deepset/roberta-base-squad2"),
-        text_generator=os.getenv("HF_MODEL_TEXT_GENERATOR", "google/flan-t5-base"),
-    )
+    def __init__(self, tokenizer, model) -> None:
+        self._tokenizer = tokenizer
+        self._model = model
+
+    def __call__(
+        self,
+        text: str,
+        max_length: int = 200,
+        max_new_tokens: Optional[int] = None,
+        num_return_sequences: int = 1,
+        do_sample: bool = False,
+        **kwargs: Any,
+    ) -> List[Dict[str, str]]:
+        """Generate text. Returns list of dicts with 'generated_text' key (pipeline-compatible)."""
+        inputs = self._tokenizer(text, return_tensors="pt", truncation=True, max_length=512)
+        # Move to same device as model
+        inputs = {k: v.to(self._model.device) for k, v in inputs.items()}
+        gen_kwargs: Dict[str, Any] = {"num_return_sequences": num_return_sequences}
+        if max_new_tokens:
+            gen_kwargs["max_new_tokens"] = max_new_tokens
+        else:
+            gen_kwargs["max_length"] = max_length
+        if do_sample:
+            gen_kwargs["do_sample"] = True
+        with torch.no_grad():
+            outputs = self._model.generate(**inputs, **gen_kwargs)
+        results = []
+        for out in outputs:
+            decoded = self._tokenizer.decode(out, skip_special_tokens=True)
+            results.append({"generated_text": decoded})
+        return results
 
 
-class _HFModelsSingleton:
-    """
-    Singleton HuggingFace pipelines.
+class HFModels:
+    """Singleton class to load and manage HuggingFace models."""
 
-    Pipelines are loaded lazily and cached to avoid repeated model loads.
-    Each getter returns None when the model cannot be initialized, allowing
-    callers to gracefully fall back.
-    """
+    _summarizer_pipeline: Optional[Pipeline] = None
+    _qna_pipeline: Optional[Pipeline] = None
+    _text_generation_pipeline: Optional[Pipeline] = None
+    _translation_pipeline: Optional[Pipeline] = None
 
-    def __init__(self) -> None:
-        self._lock = Lock()
-        self._config = _resolve_config()
-        self._summarizer: Any | None = None
-        self._qna: Any | None = None
-        self._text2text: Any | None = None
-        self._attempted = {"summarizer": False, "qna": False, "text2text": False}
+    # ------------------------------------------------------------------
+    # Core models (Task 1)
+    # ------------------------------------------------------------------
 
-    def summarizer(self) -> Optional[Any]:
-        """Return a HF summarization pipeline or None on failure."""
-
-        if self._summarizer is not None:
-            return self._summarizer
-        with self._lock:
-            if self._summarizer is not None:
-                return self._summarizer
-            if self._attempted["summarizer"]:
-                return None
-            self._attempted["summarizer"] = True
+    @classmethod
+    @lru_cache(maxsize=1)  # Ensure only one instance of the model is loaded
+    def get_summarizer(cls) -> Optional[Pipeline]:
+        """Loads and returns the summarization pipeline (BART)."""
+        if cls._summarizer_pipeline is None:
+            model_name = os.getenv("HF_MODEL_SUMMARIZER", "facebook/bart-large-cnn")
             try:
-                from transformers import pipeline
+                cls._summarizer_pipeline = pipeline("summarization", model=model_name)
+                print(f"Loaded summarizer model: {model_name}")
+            except Exception as e:
+                print(f"Error loading summarizer model {model_name}: {e}")
+        return cls._summarizer_pipeline
 
-                self._summarizer = pipeline("summarization", model=self._config.summarizer)
-            except Exception as exc:
-                logger.warning("HF summarizer init failed (%s): %s", self._config.summarizer, exc)
-                self._summarizer = None
-            return self._summarizer
-
-    def qna(self) -> Optional[Any]:
-        """Return a HF question-answering pipeline or None on failure."""
-
-        if self._qna is not None:
-            return self._qna
-        with self._lock:
-            if self._qna is not None:
-                return self._qna
-            if self._attempted["qna"]:
-                return None
-            self._attempted["qna"] = True
+    @classmethod
+    @lru_cache(maxsize=1)
+    def get_qna(cls) -> Optional[Pipeline]:
+        """Loads and returns the extractive QnA pipeline (RoBERTa-SQuAD)."""
+        if cls._qna_pipeline is None:
+            model_name = os.getenv("HF_MODEL_QNA", "deepset/roberta-base-squad2")
             try:
-                from transformers import pipeline
+                cls._qna_pipeline = pipeline("question-answering", model=model_name)
+                print(f"Loaded QnA model: {model_name}")
+            except Exception as e:
+                print(f"Error loading QnA model {model_name}: {e}")
+        return cls._qna_pipeline
 
-                self._qna = pipeline("question-answering", model=self._config.qna)
-            except Exception as exc:
-                logger.warning("HF QnA init failed (%s): %s", self._config.qna, exc)
-                self._qna = None
-            return self._qna
-
-    def text_generator(self) -> Optional[Any]:
-        """Return a HF text2text-generation pipeline (flan-t5) or None on failure."""
-
-        if self._text2text is not None:
-            return self._text2text
-        with self._lock:
-            if self._text2text is not None:
-                return self._text2text
-            if self._attempted["text2text"]:
-                return None
-            self._attempted["text2text"] = True
+    @classmethod
+    @lru_cache(maxsize=1)
+    def get_text_generation(cls) -> Optional[Seq2SeqGenerator]:
+        """Loads Flan-T5 as a seq2seq model (NOT pipeline) for reliable text generation."""
+        if cls._text_generation_pipeline is None:
+            model_name = os.getenv("HF_MODEL_TEXT_GENERATION", "google/flan-t5-base")
             try:
-                from transformers import pipeline
+                tokenizer = AutoTokenizer.from_pretrained(model_name)
+                model = AutoModelForSeq2SeqLM.from_pretrained(model_name)
+                model.eval()
+                cls._text_generation_pipeline = Seq2SeqGenerator(tokenizer, model)
+                print(f"Loaded seq2seq text generation model: {model_name}")
+            except Exception as e:
+                print(f"Error loading text generation model {model_name}: {e}")
+        return cls._text_generation_pipeline
 
-                self._text2text = pipeline("text2text-generation", model=self._config.text_generator)
-            except Exception as exc:
-                logger.warning("HF text generator init failed (%s): %s", self._config.text_generator, exc)
-                self._text2text = None
-            return self._text2text
+    @classmethod
+    @lru_cache(maxsize=1)
+    def get_translation(cls) -> Optional[Pipeline]:
+        """Loads and returns the English→ROMANCE translation pipeline (Helsinki-NLP)."""
+        if cls._translation_pipeline is None:
+            model_name = os.getenv("HF_MODEL_TRANSLATION", "Helsinki-NLP/opus-mt-en-ROMANCE")
+            try:
+                cls._translation_pipeline = pipeline("translation", model=model_name)
+                print(f"Loaded translation model: {model_name}")
+            except Exception as e:
+                print(f"Error loading translation model {model_name}: {e}")
+        return cls._translation_pipeline
 
+    # ------------------------------------------------------------------
+    # Extended models (additional NLP capabilities)
+    # ------------------------------------------------------------------
 
-_SINGLETON: _HFModelsSingleton | None = None
-_SINGLETON_LOCK = Lock()
+    _sentiment_pipeline: Optional[Pipeline] = None
+    _classification_pipeline: Optional[Pipeline] = None
+    _ner_pipeline: Optional[Pipeline] = None
+    _image_classification_pipeline: Optional[Pipeline] = None
 
+    @classmethod
+    @lru_cache(maxsize=1)
+    def get_sentiment(cls) -> Optional[Pipeline]:
+        """Loads and returns the sentiment analysis pipeline."""
+        if cls._sentiment_pipeline is None:
+            model_name = os.getenv("HF_MODEL_SENTIMENT", "distilbert-base-uncased-finetuned-sst-2-english")
+            try:
+                cls._sentiment_pipeline = pipeline("sentiment-analysis", model=model_name)
+                print(f"Loaded sentiment model: {model_name}")
+            except Exception as e:
+                print(f"Error loading sentiment model {model_name}: {e}")
+        return cls._sentiment_pipeline
 
-def get_hf_models() -> _HFModelsSingleton:
-    """Get the shared HF models singleton."""
+    @classmethod
+    @lru_cache(maxsize=1)
+    def get_classification(cls) -> Optional[Pipeline]:
+        """Loads and returns the text classification pipeline."""
+        if cls._classification_pipeline is None:
+            model_name = os.getenv("HF_MODEL_CLASSIFICATION", "facebook/bart-large-mnli")
+            try:
+                cls._classification_pipeline = pipeline("zero-shot-classification", model=model_name)
+                print(f"Loaded classification model: {model_name}")
+            except Exception as e:
+                print(f"Error loading classification model {model_name}: {e}")
+        return cls._classification_pipeline
 
-    global _SINGLETON
-    if _SINGLETON is not None:
-        return _SINGLETON
-    with _SINGLETON_LOCK:
-        if _SINGLETON is None:
-            _SINGLETON = _HFModelsSingleton()
-        return _SINGLETON
+    @classmethod
+    @lru_cache(maxsize=1)
+    def get_ner(cls) -> Optional[Pipeline]:
+        """Loads and returns the named entity recognition pipeline."""
+        if cls._ner_pipeline is None:
+            model_name = os.getenv("HF_MODEL_NER", "dbmdz/bert-large-cased-finetuned-conll03-english")
+            try:
+                cls._ner_pipeline = pipeline("ner", model=model_name, aggregation_strategy="simple")
+                print(f"Loaded NER model: {model_name}")
+            except Exception as e:
+                print(f"Error loading NER model {model_name}: {e}")
+        return cls._ner_pipeline
 
+    @classmethod
+    @lru_cache(maxsize=1)
+    def get_image_classification(cls) -> Optional[Pipeline]:
+        """Loads and returns the image classification pipeline."""
+        if cls._image_classification_pipeline is None:
+            model_name = os.getenv("HF_MODEL_IMAGE_CLASS", "google/vit-base-patch16-224")
+            try:
+                cls._image_classification_pipeline = pipeline("image-classification", model=model_name)
+                print(f"Loaded image classification model: {model_name}")
+            except Exception as e:
+                print(f"Error loading image classification model {model_name}: {e}")
+        return cls._image_classification_pipeline
+
+# Example usage (for testing purposes, remove in production if not needed)
+if __name__ == "__main__":
+    # Set environment variables for testing different models or fallbacks
+    # os.environ["HF_MODEL_SUMMARIZER"] = "sshleifer/distilbart-cnn-12-6"
+
+    summarizer = HFModels.get_summarizer()
+    if summarizer:
+        text = "This is a long document that needs to be summarized. It contains many sentences and provides a lot of information."
+        summary = summarizer(text, max_length=50, min_length=10, do_sample=False)
+        print(f"\nSummary: {summary[0]['summary_text']}")
+    else:
+        print("Summarizer model not available.")
+
+    qna = HFModels.get_qna()
+    if qna:
+        context = "The capital of France is Paris. It is a beautiful city."
+        question = "What is the capital of France?"
+        answer = qna(question=question, context=context)
+        print(f"\nQnA Answer: {answer['answer']}")
+    else:
+        print("QnA model not available.")
+
+    text_generator = HFModels.get_text_generation()
+    if text_generator:
+        prompt = "Once upon a time, in a land far, far away,"
+        generated_text = text_generator(prompt, max_length=50, num_return_sequences=1)
+        print(f"\nGenerated Text: {generated_text[0]['generated_text']}")
+    else:
+        print("Text generation model not available.")

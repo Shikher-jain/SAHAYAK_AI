@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import pickle
 import sqlite3
+import threading
 from pathlib import Path
 from threading import Lock
 from typing import Dict, List, Tuple
@@ -17,14 +18,27 @@ class SQLiteFaissStore:
         self.embed_dim = embed_dim
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
 
+        # TASK 24: thread-local connection pool — each thread reuses its own connection.
+        self._local = threading.local()
+
         self._cache_lock = Lock()
         self._cached_signature: tuple[int, int] | None = None
         self._cached_index: faiss.IndexFlatIP | None = None
         self._cached_texts: List[str] | None = None
         self._cached_metadata: List[Dict[str, str]] | None = None
 
+    def _get_conn(self) -> sqlite3.Connection:
+        """TASK 24: return a per-thread reusable SQLite connection."""
+        conn: sqlite3.Connection | None = getattr(self._local, "conn", None)
+        if conn is None:
+            conn = sqlite3.connect(str(self.db_path), check_same_thread=False)
+            conn.execute("PRAGMA journal_mode=WAL")
+            conn.execute("PRAGMA synchronous=NORMAL")
+            self._local.conn = conn
+        return conn
+
     def init_db(self) -> None:
-        conn = sqlite3.connect(self.db_path)
+        conn = self._get_conn()
         cur = conn.cursor()
         cur.execute(
             """
@@ -40,7 +54,6 @@ class SQLiteFaissStore:
         # BUG 2 FIX: ensure legacy databases include a metadata column.
         self._ensure_metadata_column(conn)
         conn.commit()
-        conn.close()
 
     def _ensure_metadata_column(self, conn: sqlite3.Connection) -> None:
         cur = conn.cursor()
@@ -56,7 +69,7 @@ class SQLiteFaissStore:
         embedding: np.ndarray,
         metadata: Dict[str, str] | None = None,
     ) -> None:
-        conn = sqlite3.connect(self.db_path)
+        conn = self._get_conn()
         cur = conn.cursor()
         emb_blob = pickle.dumps(np.asarray(embedding, dtype="float32"))
         meta_blob = json.dumps(metadata or {}, ensure_ascii=False)
@@ -65,7 +78,6 @@ class SQLiteFaissStore:
             (filename, chunk_text, emb_blob, meta_blob),
         )
         conn.commit()
-        conn.close()
 
         with self._cache_lock:
             self._cached_signature = None
@@ -74,11 +86,10 @@ class SQLiteFaissStore:
             self._cached_metadata = None
 
     def get_all_chunks(self) -> Tuple[List[str], np.ndarray]:
-        conn = sqlite3.connect(self.db_path)
+        conn = self._get_conn()
         cur = conn.cursor()
         cur.execute("SELECT text_chunk, embedding FROM pdfs ORDER BY id ASC")
         rows = cur.fetchall()
-        conn.close()
 
         texts: List[str] = []
         embeddings: List[np.ndarray] = []
@@ -91,11 +102,10 @@ class SQLiteFaissStore:
         return texts, np.vstack(embeddings).astype("float32")
 
     def get_all_records(self) -> Tuple[List[str], np.ndarray, List[Dict[str, str]]]:
-        conn = sqlite3.connect(self.db_path)
+        conn = self._get_conn()
         cur = conn.cursor()
         cur.execute("SELECT text_chunk, embedding, metadata FROM pdfs ORDER BY id ASC")
         rows = cur.fetchall()
-        conn.close()
 
         texts: List[str] = []
         embeddings: List[np.ndarray] = []
@@ -113,11 +123,10 @@ class SQLiteFaissStore:
         return texts, np.vstack(embeddings).astype("float32"), metadatas
 
     def _current_signature(self) -> tuple[int, int]:
-        conn = sqlite3.connect(self.db_path)
+        conn = self._get_conn()
         cur = conn.cursor()
         cur.execute("SELECT COUNT(*), COALESCE(MAX(id), 0) FROM pdfs")
         count, max_id = cur.fetchone()
-        conn.close()
         return int(count), int(max_id)
 
     def build_faiss_index(self) -> Tuple[faiss.IndexFlatIP, List[str]]:

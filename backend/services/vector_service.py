@@ -3,7 +3,9 @@ from __future__ import annotations
 import logging
 import re
 import unicodedata
-from typing import Any, Dict, List
+from collections import OrderedDict
+from threading import Lock
+from typing import Any, Dict, List, Tuple
 
 import numpy as np
 
@@ -19,6 +21,7 @@ from backend.rag.generator import Generator
 from backend.rag.query_rewrite import rewrite_query
 from backend.rag.recommend import Recommender
 from backend.vector_store import qdrant_store
+from backend.common.modes import resolve_mode, get_ui_hints
 
 local_db.init_db()
 
@@ -27,6 +30,11 @@ logger = logging.getLogger("sahayak.vector_service")
 _summary_pipeline = None
 _qa_generator = Generator()
 _conversation_manager = ConversationManager()
+
+# TASK 24: LRU response cache for repeated RAG queries.
+_RAG_CACHE_MAX = 128
+_rag_cache: "OrderedDict[str, Dict[str, Any]]" = OrderedDict()
+_rag_cache_lock = Lock()
 
 _SANITIZE_TRANSLATION = str.maketrans({
     "\u2018": "'",
@@ -188,6 +196,9 @@ def _ingest_local(text: str, metadata: Dict[str, Any], embedding: np.ndarray | N
 def search_vectors(query: str, top_k: int = 5, target: str = "auto") -> List[Dict[str, str]]:
     results: List[Dict[str, str]] = []
     query_embedding = embed_text(query)
+    # TASK 24: reuse cached search results for identical queries.
+    cache_key = f"{query.strip().lower()}|{top_k}|{target}"
+    # NOTE: search results are not cached because they may change after ingestion.
     qdrant_mode = _use_qdrant(target)
     local_mode = _use_local(target)
 
@@ -275,7 +286,19 @@ def rag_answer(
     top_k: int = 5,
     target: str = "auto",
     session_id: str | None = None,
+    learning_mode: str = "student",
+    user_mode: str | None = None,
 ) -> Dict[str, Any]:
+    # Resolve user_mode from modes.py
+    resolved_user_mode = resolve_mode(user_mode)
+    # TASK 24: LRU cache lookup for repeated RAG queries (skip when session has history).
+    cache_key = f"{query.strip().lower()}|{top_k}|{target}|{learning_mode}|{resolved_user_mode}" if not session_id else None
+    if cache_key:
+        with _rag_cache_lock:
+            cached = _rag_cache.get(cache_key)
+            if cached is not None:
+                _rag_cache.move_to_end(cache_key)
+                return {**cached, "cached": True}
     query_lang = detect_language(query)
     english_query = translate_to_english(query, query_lang)
     # TASK 1: rewrite query before embedding/retrieval.
@@ -289,21 +312,23 @@ def rag_answer(
             "answer": translate_from_english("No context available yet. Please ingest content first.", query_lang),
             "sources": [],
             "recommendations": [],
+            "follow_ups": [],
             "session_id": session_id,
         }
 
-    # TASK 3: prepend prior turns when session_id is provided.
-    context_for_generation = sanitized_context
+    # Retrieve conversation history (passed to generator separately, not merged into context).
+    conversation_history = ""
     if session_id:
-        history = _conversation_manager.get_history(session_id)
-        if history:
-            context_for_generation = f"Previous conversation:\n{history}\n\nContext:\n{sanitized_context}"
+        conversation_history = _conversation_manager.get_history(session_id)
 
     citations = _citations_from_hits(hits)
     generation = _qa_generator.generate_answer(
-        context_for_generation,
+        sanitized_context,
         sanitized_query,
         sources=citations,
+        learning_mode=learning_mode,
+        conversation_history=conversation_history,
+        user_mode=resolved_user_mode,
     )
     answer_text = _sanitize_output(str(generation.get("answer", "")))
     if query_lang != "en":
@@ -313,15 +338,31 @@ def rag_answer(
     if session_id and answer_text:
         _conversation_manager.add_exchange(session_id, sanitized_query, answer_text)
 
+    # Structured recommendations from generator + vector-based recommendations.
     recommender = Recommender(target=target)
-    recommendations = recommender.recommend(rewritten_query, top_k=min(3, top_k))
-    return {
+    vector_recs = recommender.recommend(rewritten_query, top_k=min(3, top_k))
+    llm_recs = generation.get("recommendations") or []
+    # Merge: LLM recommendations first (topic-level), then vector recs (document-level).
+    all_recs = llm_recs + vector_recs
+
+    result = {
         "answer": answer_text,
         "sources": formatted_sources,
         "context": sanitized_context,
-        "recommendations": recommendations,
+        "recommendations": all_recs,
+        "follow_ups": generation.get("follow_ups") or [],
         "session_id": session_id,
+        "learning_mode": learning_mode,
+        "user_mode": resolved_user_mode,
+        "ui_hints": get_ui_hints(resolved_user_mode),
     }
+    # TASK 24: store in LRU cache (only for non-conversational queries).
+    if cache_key:
+        with _rag_cache_lock:
+            _rag_cache[cache_key] = result
+            if len(_rag_cache) > _RAG_CACHE_MAX:
+                _rag_cache.popitem(last=False)
+    return result
 
 
 def get_document_chunks(document_id: str, target: str = "auto") -> tuple[str, List[str]]:

@@ -1,146 +1,76 @@
-from __future__ import annotations
+from langdetect import detect, DetectorFactory
+from transformers import pipeline, Pipeline
+from functools import lru_cache
+import os
+from typing import Optional
 
-import logging
-from dataclasses import dataclass
-from threading import Lock
-from typing import Dict, Optional
+# Ensure reproducibility in langdetect
+DetectorFactory.seed = 0
 
-logger = logging.getLogger("sahayak.language")
+SUPPORTED_LANGUAGES = ["hi", "en", "es", "fr", "de"]
 
-
-SUPPORTED_LANGS = {"en", "hi", "es", "fr", "de"}
-
+@lru_cache(maxsize=None) # Cache translation pipelines indefinitely
+def _get_translation_pipeline(model_name: str) -> Optional[Pipeline]:
+    """Helper to load a translation pipeline with caching and error handling."""
+    try:
+        translator = pipeline("translation", model=model_name)
+        print(f"Loaded translation model: {model_name}")
+        return translator
+    except Exception as e:
+        print(f"Error loading translation model {model_name}: {e}")
+        return None
 
 def detect_language(text: str) -> str:
-    """
-    Detect language code for a given text.
-
-    Returns a best-effort ISO code; falls back to "en" on errors/empty input.
-    """
-
-    if not text or not text.strip():
-        return "en"
+    """Detects the language of the given text and returns its ISO 639-1 code."""
     try:
-        from langdetect import detect
-
         lang = detect(text)
-        return lang if lang in SUPPORTED_LANGS else "en"
-    except Exception:
+        return lang if lang in SUPPORTED_LANGUAGES else "en" # Default to English if unsupported
+    except Exception as e:
+        print(f"Language detection failed: {e}. Defaulting to English.")
         return "en"
-
-
-@dataclass(frozen=True)
-class _TranslatorConfig:
-    """Supported translation model naming for opus-mt."""
-
-    model_prefix: str = "Helsinki-NLP/opus-mt"
-
-
-class _TranslationPipelines:
-    """
-    Lazy-loaded translation pipelines by model name.
-
-    This caches pipelines to avoid re-downloading/re-initializing the same model.
-    """
-
-    def __init__(self) -> None:
-        self._lock = Lock()
-        self._pipelines: Dict[str, object] = {}
-        self._failed: set[str] = set()
-        self._cfg = _TranslatorConfig()
-
-    def _model_name(self, source_lang: str, target_lang: str) -> str:
-        return f"{self._cfg.model_prefix}-{source_lang}-{target_lang}"
-
-    def get(self, source_lang: str, target_lang: str) -> Optional[object]:
-        """Return a translation pipeline for the pair, or None if unavailable."""
-
-        model_name = self._model_name(source_lang, target_lang)
-        if model_name in self._pipelines:
-            return self._pipelines[model_name]
-        if model_name in self._failed:
-            return None
-        with self._lock:
-            if model_name in self._pipelines:
-                return self._pipelines[model_name]
-            if model_name in self._failed:
-                return None
-            try:
-                from transformers import pipeline
-
-                pipe = pipeline("translation", model=model_name)
-                self._pipelines[model_name] = pipe
-                return pipe
-            except Exception as exc:
-                logger.warning("Translation model init failed (%s): %s", model_name, exc)
-                self._failed.add(model_name)
-                return None
-
-
-_TRANSLATORS: _TranslationPipelines | None = None
-_TRANSLATORS_LOCK = Lock()
-
-
-def _get_translators() -> _TranslationPipelines:
-    """Return the shared translation cache singleton."""
-
-    global _TRANSLATORS
-    if _TRANSLATORS is not None:
-        return _TRANSLATORS
-    with _TRANSLATORS_LOCK:
-        if _TRANSLATORS is None:
-            _TRANSLATORS = _TranslationPipelines()
-        return _TRANSLATORS
-
 
 def translate_to_english(text: str, source_lang: str) -> str:
-    """
-    Translate input text to English.
-
-    If translation pipeline cannot be loaded, returns original text unchanged.
-    """
-
-    src = (source_lang or "en").lower()
-    if src == "en" or not text.strip():
+    """Translates text from source_lang to English using Helsinki-NLP/opus-mt models."""
+    if source_lang == "en":
         return text
-    if src not in SUPPORTED_LANGS:
-        return text
-
-    translators = _get_translators()
-    pipe = translators.get(src, "en")
-    if pipe is None:
-        return text
-    try:
-        result = pipe(text)
-        if isinstance(result, list) and result:
-            return str(result[0].get("translation_text", "")).strip() or text
-        return text
-    except Exception:
-        return text
-
+    
+    model_name = f"Helsinki-NLP/opus-mt-{source_lang}-en"
+    translator = _get_translation_pipeline(model_name)
+    if translator:
+        try:
+            translated_text = translator(text)[0]["translation_text"]
+            return translated_text
+        except Exception as e:
+            print(f"Translation to English failed for {source_lang}: {e}. Returning original text.")
+            return text
+    return text # Fallback to original text if model fails to load
 
 def translate_from_english(text: str, target_lang: str) -> str:
-    """
-    Translate English text into the target language.
+    """Translates text from English to target_lang using Helsinki-NLP/opus-mt models."""
+    if target_lang == "en":
+        return text
+    
+    model_name = f"Helsinki-NLP/opus-mt-en-{target_lang}"
+    translator = _get_translation_pipeline(model_name)
+    if translator:
+        try:
+            translated_text = translator(text)[0]["translation_text"]
+            return translated_text
+        except Exception as e:
+            print(f"Translation from English failed for {target_lang}: {e}. Returning original text.")
+            return text
+    return text # Fallback to original text if model fails to load
 
-    If translation pipeline cannot be loaded, returns original text unchanged.
-    """
+if __name__ == "__main__":
+    print(f"Detected language of 'Hello world': {detect_language('Hello world')}")
+    print(f"Detected language of 'Hola mundo': {detect_language('Hola mundo')}")
+    print(f"Detected language of 'नमस्ते दुनिया': {detect_language('नमस्ते दुनिया')}")
 
-    tgt = (target_lang or "en").lower()
-    if tgt == "en" or not text.strip():
-        return text
-    if tgt not in SUPPORTED_LANGS:
-        return text
+    english_text = "Hello, how are you?"
+    spanish_text = "Hola, ¿cómo estás?"
+    hindi_text = "नमस्ते, आप कैसे हैं?"
 
-    translators = _get_translators()
-    pipe = translators.get("en", tgt)
-    if pipe is None:
-        return text
-    try:
-        result = pipe(text)
-        if isinstance(result, list) and result:
-            return str(result[0].get("translation_text", "")).strip() or text
-        return text
-    except Exception:
-        return text
-
+    print(f"\nTranslating '{spanish_text}' to English: {translate_to_english(spanish_text, 'es')}")
+    print(f"Translating '{hindi_text}' to English: {translate_to_english(hindi_text, 'hi')}")
+    print(f"Translating '{english_text}' to Spanish: {translate_from_english(english_text, 'es')}")
+    print(f"Translating '{english_text}' to Hindi: {translate_from_english(english_text, 'hi')}")

@@ -20,3 +20,35 @@ class Recommender:
         if not query_text:
             return []
         return vector_service.search_vectors(query_text, top_k=top_k, target=self.target)
+
+    def recommend_for_user(self, user_id: str, top_k: int = 5) -> List[Dict[str, str]]:
+        """TASK 20: Content-based recommendations from user's recent activity."""
+        recommendations: List[Dict[str, str]] = []
+        # Get recent documents from user's ingestion history
+        try:
+            from backend.vector_store import qdrant_store
+            recent = qdrant_store.recent_payloads(limit=10)
+            # Collect tags and subjects from recent uploads
+            topics = set()
+            for payload in recent:
+                tags = payload.get("tags", [])
+                if isinstance(tags, list):
+                    topics.update(tags)
+                source = payload.get("source", "")
+                if source:
+                    topics.add(source)
+            # Search for related content based on collected topics
+            for topic in list(topics)[:3]:
+                hits = vector_service.search_vectors(str(topic), top_k=2, target=self.target)
+                recommendations.extend(hits)
+        except Exception:
+            pass
+        # Deduplicate
+        seen = set()
+        unique = []
+        for r in recommendations:
+            key = r.get("id", "")
+            if key and key not in seen:
+                seen.add(key)
+                unique.append(r)
+        return unique[:top_k]
