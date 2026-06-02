@@ -1,23 +1,21 @@
 import unittest
-from backend.ingestion.image import ImageIngestor
+from io import BytesIO
+from unittest.mock import patch
+
 from PIL import Image
-import numpy as np
-import os
 
-class TestImageIngestor(unittest.TestCase):
-    def setUp(self):
-        self.ingestor = ImageIngestor()
-        self.test_img = "test_img.png"
-        img = Image.fromarray(np.zeros((224,224,3), dtype=np.uint8))
-        img.save(self.test_img)
+from backend.ingestion.image import ocr_image_bytes
 
-    def test_ingest_image(self):
-        self.ingestor.ingest_image(self.test_img, metadata={"id": "test_img"})
-        # No assertion: just check no error
+class TestImageIngestion(unittest.TestCase):
+    def test_ocr_image_bytes(self):
+        image = Image.new("RGB", (32, 32), color=(255, 255, 255))
+        buffer = BytesIO()
+        image.save(buffer, format="PNG")
+        payload = buffer.getvalue()
 
-    def tearDown(self):
-        if os.path.exists(self.test_img):
-            os.remove(self.test_img)
+        with patch("backend.ingestion.image.pytesseract.image_to_string", return_value="detected text"):
+            result = ocr_image_bytes(payload)
+        self.assertEqual(result, "detected text")
 
 if __name__ == "__main__":
     unittest.main()

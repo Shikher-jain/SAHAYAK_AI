@@ -1,13 +1,13 @@
-def extract_timeline(text: str):
-    # Placeholder: implement NLP event extraction
-    return []
-def extract_timeline(text: str):
-    # Placeholder: implement NLP event extraction
-    return []
-# backend/processing/timeline.py
+from __future__ import annotations
 
 import re
+
 from dateutil import parser
+
+
+def extract_timeline(text: str):
+    extractor = TimelineExtractor()
+    return extractor.build_timeline([text])
 
 class TimelineExtractor:
     def __init__(self):
@@ -26,7 +26,7 @@ class TimelineExtractor:
                 try:
                     parsed_date = parser.parse(match, fuzzy=True)
                     dates.append(parsed_date)
-                except:
+                except (ValueError, TypeError):
                     continue
         return dates
 

@@ -1,26 +1,17 @@
-import fitz
-import pytesseract
-from PIL import Image
-import io
-import requests
 import youtube_transcript_api
-from bs4 import BeautifulSoup
+
+from backend.ingestion.image import ocr_image_bytes
+from backend.ingestion.pdf import extract_pdf_text_from_bytes
+from backend.ingestion.url import fetch_url_text
 
 def extract_pdf(file_bytes):
-    doc = fitz.open(stream=file_bytes, filetype="pdf")
-    text = ""
-    for page in doc:
-        text += page.get_text()
-    return text
+    return extract_pdf_text_from_bytes(file_bytes)
 
 def extract_image(file_bytes):
-    image = Image.open(io.BytesIO(file_bytes))
-    return pytesseract.image_to_string(image)
+    return ocr_image_bytes(file_bytes)
     
 def extract_url(url):
-    html = requests.get(url).text
-    soup = BeautifulSoup(html, "html.parser")
-    return soup.get_text()
+    return fetch_url_text(url)
 
 def extract_youtube(video_id):
     transcript = youtube_transcript_api.YouTubeTranscriptApi.get_transcript(video_id)

@@ -1,8 +1,9 @@
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
 
+from backend.auth import api_key_auth
 from backend.vector_store import qdrant_store
 
-router = APIRouter(prefix="/admin", tags=["admin"])
+router = APIRouter(prefix="/admin", tags=["admin"], dependencies=[Depends(api_key_auth)])
 
 
 @router.get("/health")

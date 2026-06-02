@@ -1,31 +1,48 @@
 --extra-index-url https://download.pytorch.org/whl/cpu
 
+# Backend
 fastapi
 uvicorn[standard]
+python-dotenv
 pydantic
 python-multipart
-requests
-httpx
-pillow
+
+# Core ML / NLP
+torch==2.2.2
+transformers
+sentence-transformers
+
+# RAG + LLM
+langchain==0.0.350
+langchain-community==0.0.20
+openai
+groq
+
+# Vector DB (choose one)
+qdrant-client
+# faiss-cpu   <-- comment this for now
+
+# Data Processing
+numpy<2.0
+pandas
+openpyxl
+bcrypt
+python-jose
+
+# Document Processing (lean)
 pytesseract
 pdfplumber
 PyMuPDF
-fpdf2
-moviepy
-youtube-transcript-api
-beautifulsoup4
-sentence-transformers
-transformers
-torch==2.9.1
-torchaudio==2.9.1
-openai-whisper
-faiss-cpu
-qdrant-client
-numpy
-pandas
+
+# Utilities
 tqdm
+requests
+httpx
+beautifulsoup4
 langdetect
 sentencepiece
-opencv-python-headless
+
+# Optional (only if needed)
+openai-whisper
+gTTS
 streamlit
-python-dotenv

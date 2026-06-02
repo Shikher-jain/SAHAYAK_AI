@@ -1,11 +1,12 @@
 from typing import Dict, List, Optional
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
 from pydantic import BaseModel, Field
 
+from backend.auth import api_key_auth
 from backend.services import dataset_service
 
-router = APIRouter(prefix="/finetune", tags=["fine-tuning"])
+router = APIRouter(prefix="/finetune", tags=["fine-tuning"], dependencies=[Depends(api_key_auth)])
 
 
 class TrainingExample(BaseModel):

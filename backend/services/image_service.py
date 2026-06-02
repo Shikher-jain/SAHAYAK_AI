@@ -1,8 +1,9 @@
-def process_image(file_path: str, metadata=None):
-def ingest_image(image_path):
+from __future__ import annotations
+
+from pathlib import Path
+
 from backend.ingestion.image import ocr_image
 
-def process_image(file_path: str, metadata=None):
-    text = ocr_image(file_path)
-    # Add business logic, e.g., store OCR result, update DB, etc.
-    return text
+
+def process_image(file_path: str | Path, metadata=None) -> str:
+    return ocr_image(file_path)

@@ -1,11 +1,11 @@
 from __future__ import annotations
 
 import json
-from pathlib import Path
 from typing import Dict, List
 
-DATASET_PATH = Path(__file__).resolve().parents[2] / "data" / "ahayak" / "fine_tune_dataset.jsonl"
-DATASET_PATH.parent.mkdir(parents=True, exist_ok=True)
+from backend.common.data_paths import get_finetune_dataset_path
+
+DATASET_PATH = get_finetune_dataset_path()
 
 
 def append_example(prompt: str, completion: str, metadata: Dict[str, str] | None = None) -> None:

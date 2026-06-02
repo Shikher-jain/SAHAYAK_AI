@@ -1,24 +1,28 @@
-import unittest
-from backend.ingestion.audio import AudioIngestor
-import numpy as np
-import soundfile as sf
 import os
+import tempfile
+import unittest
+from unittest.mock import patch
 
-class TestAudioIngestor(unittest.TestCase):
+from backend.ingestion.audio import transcribe_audio
+
+
+class TestAudioIngestion(unittest.TestCase):
     def setUp(self):
-        self.ingestor = AudioIngestor()
-        self.test_audio = "test_audio.wav"
-        # Generate a silent audio file
-        data = np.zeros(int(16000 * 1), dtype=np.float32)  # 1 second at 16kHz
-        sf.write(self.test_audio, data, 16000)
+        handle = tempfile.NamedTemporaryFile(delete=False, suffix=".wav")
+        handle.write(b"RIFF....WAVE")
+        handle.close()
+        self.test_audio = handle.name
 
-    def test_ingest_audio(self):
-        self.ingestor.ingest_audio(self.test_audio, metadata={"id": "test_audio"})
-        # No assertion: just check no error
+    def test_transcribe_audio(self):
+        fake_model = type("FakeModel", (), {"transcribe": lambda self, path: {"text": "hello world"}})()
+        with patch("backend.ingestion.audio._get_model", return_value=fake_model):
+            result = transcribe_audio(self.test_audio)
+        self.assertEqual(result, "hello world")
 
     def tearDown(self):
         if os.path.exists(self.test_audio):
             os.remove(self.test_audio)
+
 
 if __name__ == "__main__":
     unittest.main()

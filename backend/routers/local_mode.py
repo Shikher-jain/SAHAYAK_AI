@@ -1,18 +1,18 @@
-from pathlib import Path
 from typing import Dict
 
-from fastapi import APIRouter, File, UploadFile
+from fastapi import APIRouter, Depends, File, UploadFile
 
+from backend.auth import api_key_auth
+from backend.common.data_paths import get_local_pdf_storage_dir
+from backend.ingestion.text import chunk_text
 from backend.local_stack import extractor, rag_engine
-from backend.local_stack.db import add_chunk, init_db
-from backend.local_stack.embedder import embed_text
+from backend.local_stack.db import add_chunk_with_metadata, init_db
+from backend.common.embedder import embed_text
 
-BASE_DIR = Path(__file__).resolve().parents[2]
-PDF_FOLDER = BASE_DIR / "data" / "sahayak_09_02" / "pdf_storage"
-PDF_FOLDER.mkdir(parents=True, exist_ok=True)
+PDF_FOLDER = get_local_pdf_storage_dir()
 
 init_db()
-router = APIRouter(prefix="/local", tags=["local-rag"])
+router = APIRouter(prefix="/local", tags=["local-rag"], dependencies=[Depends(api_key_auth)])
 
 
 @router.post("/upload")
@@ -32,15 +32,13 @@ async def upload_to_local_store(file: UploadFile = File(...)) -> Dict[str, str]:
     if not text.strip():
         return {"error": "Unable to extract text"}
 
-    chunk_size = 600
-    overlap = 120
-    chunks = []
-    for idx in range(0, len(text), chunk_size - overlap):
-        chunk = text[idx : idx + chunk_size].strip()
-        if chunk:
-            chunks.append(chunk)
-            embedding = embed_text(chunk)
-            add_chunk(filename, chunk, embedding)
+    chunks = chunk_text(text, chunk_size=180, overlap=30)
+    if not chunks:
+        chunks = [text]
+    for chunk in chunks:
+        embedding = embed_text(chunk)
+        # BUG 2 FIX: persist filename metadata for local-only uploads.
+        add_chunk_with_metadata(filename, chunk, embedding, {"source": filename, "modality": "local"})
 
     return {"status": "ok", "chunks_written": str(len(chunks))}
 

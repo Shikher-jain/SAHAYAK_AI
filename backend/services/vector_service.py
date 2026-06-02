@@ -6,11 +6,18 @@ import unicodedata
 from typing import Any, Dict, List
 
 import numpy as np
-from transformers import pipeline
 
 from backend.ingestion.text import chunk_text
 from backend.local_stack import db as local_db
-from backend.local_stack import embedder as local_embedder
+from backend.common.language import detect_language, translate_from_english, translate_to_english
+from backend.common.embedder import embed_text, embed_texts
+from backend.processing.summarization import summarize_text as processing_summarize_text
+from backend.processing.tagging import Tagger
+from backend.rag.conversation import ConversationManager
+from backend.rag.duplicate import DuplicateDetector
+from backend.rag.generator import Generator
+from backend.rag.query_rewrite import rewrite_query
+from backend.rag.recommend import Recommender
 from backend.vector_store import qdrant_store
 
 local_db.init_db()
@@ -18,6 +25,8 @@ local_db.init_db()
 logger = logging.getLogger("sahayak.vector_service")
 
 _summary_pipeline = None
+_qa_generator = Generator()
+_conversation_manager = ConversationManager()
 
 _SANITIZE_TRANSLATION = str.maketrans({
     "\u2018": "'",
@@ -30,19 +39,18 @@ _SANITIZE_TRANSLATION = str.maketrans({
 
 
 def _sanitize_output(text: str) -> str:
-    """Remove emojis/non-ASCII glyphs and normalize whitespace for API responses."""
+    """Normalize whitespace and punctuation for API responses."""
     if not text:
         return ""
 
     normalized = unicodedata.normalize("NFKC", text).translate(_SANITIZE_TRANSLATION)
-    ascii_text = normalized.encode("ascii", "ignore").decode("ascii")
-    ascii_text = ascii_text.replace("\r\n", "\n").replace("\r", "\n")
-    ascii_text = re.sub(r"[ \t]+", " ", ascii_text)
-    ascii_text = re.sub(r"\n{3,}", "\n\n", ascii_text)
+    normalized = normalized.replace("\r\n", "\n").replace("\r", "\n")
+    normalized = re.sub(r"[ \t]+", " ", normalized)
+    normalized = re.sub(r"\n{3,}", "\n\n", normalized)
 
     cleaned_lines = []
     previous_blank = False
-    for raw_line in ascii_text.split("\n"):
+    for raw_line in normalized.split("\n"):
         stripped_line = raw_line.strip()
         if not stripped_line:
             if cleaned_lines and not previous_blank:
@@ -78,6 +86,8 @@ def _load_summarizer():
     global _summary_pipeline
     if _summary_pipeline is None:
         try:
+            from transformers import pipeline
+
             _summary_pipeline = pipeline("summarization", model="facebook/bart-large-cnn")
         except Exception:
             _summary_pipeline = None
@@ -99,43 +109,98 @@ def _use_local(target: str) -> bool:
         return True
     if target == "auto" and not qdrant_store.is_available:
         return True
-    return target == "auto"
+    return False
 
 
-def ingest_text(text: str, metadata: Dict[str, str] | None = None, target: str = "auto") -> List[Dict[str, str]]:
+def ingest_text(
+    text: str,
+    metadata: Dict[str, Any] | None = None,
+    target: str = "auto",
+    chunking_strategy: str = "recursive",
+) -> List[Dict[str, str]]:
     metadata = metadata or {}
-    segments = chunk_text(text) or [text]
+    detected_lang = detect_language(text)
+    english_text = translate_to_english(text, detected_lang)
+    if detected_lang != "en":
+        metadata = dict(metadata)
+        metadata["source_language"] = detected_lang
+        metadata["translated_to_english"] = True
+    # TASK 3 FIX: auto-select chunking strategy based on modality.
+    modality = (metadata.get("modality") or "").lower()
+    resolved_strategy = _resolve_chunking_strategy(modality, chunking_strategy)
+    segments = chunk_text(english_text, strategy=resolved_strategy) or [english_text]
     records: List[Dict[str, str]] = []
+
+    qdrant_mode = _use_qdrant(target)
+    local_mode = _use_local(target)
+    tagger = Tagger()
+    duplicate_detector = DuplicateDetector(target=target)
+
+    cleaned_segments: List[str] = []
+    segment_metadatas: List[Dict[str, Any]] = []
     for segment in segments:
-        embedding = local_embedder.embed_text(segment)
-        if _use_qdrant(target):
-            try:
-                record = qdrant_store.upsert_text(segment, metadata, embedding)
+        cleaned_segment = segment.strip()
+        if not cleaned_segment:
+            continue
+        # TASK 2 FIX: skip segments that are duplicates of existing content.
+        if duplicate_detector.check_duplicates(cleaned_segment):
+            continue
+        tags = tagger.extract_keywords(cleaned_segment)
+        # TASK 5 FIX: attach generated tags to metadata for vector storage.
+        segment_metadata = dict(metadata)
+        if tags:
+            segment_metadata["tags"] = tags
+        cleaned_segments.append(cleaned_segment)
+        segment_metadatas.append(segment_metadata)
+
+    if not cleaned_segments:
+        return records
+
+    # TASK 2: one embed_texts() call replaces N sequential encode() calls (~10–50x faster on large docs).
+    embeddings = embed_texts(cleaned_segments)
+    if qdrant_mode:
+        try:
+            # TASK 2: Qdrant upload_collection batches all points in a single client operation.
+            records.extend(qdrant_store.upsert_texts(cleaned_segments, segment_metadatas, embeddings))
+            for record in records:
                 record["backend"] = "qdrant"
-                records.append(record)
-            except Exception as exc:
-                logger.warning("Qdrant ingestion failed, falling back to local store: %s", exc)
-        if _use_local(target):
-            records.append(_ingest_local(segment, metadata, embedding))
+            if target == "qdrant" or not local_mode:
+                return records
+        except Exception as exc:
+            logger.warning("Qdrant ingestion failed, falling back to local store: %s", exc)
+            if target == "qdrant":
+                raise
+            local_mode = True
+    if local_mode:
+        for segment, segment_metadata, embedding in zip(cleaned_segments, segment_metadatas, embeddings):
+            records.append(_ingest_local(segment, segment_metadata, embedding))
     return records
 
 
-def _ingest_local(text: str, metadata: Dict[str, str], embedding: np.ndarray | None = None) -> Dict[str, str]:
-    embedding = embedding if embedding is not None else local_embedder.embed_text(text)
+def _ingest_local(text: str, metadata: Dict[str, Any], embedding: np.ndarray | None = None) -> Dict[str, str]:
+    embedding = embedding if embedding is not None else embed_text(text)
     filename = metadata.get("source", "local-upload")
-    local_db.add_chunk(filename, text, embedding)
+    # BUG 2 FIX: persist metadata alongside local vectors for accurate retrieval.
+    local_db.add_chunk_with_metadata(filename, text, embedding, metadata)
     return {"backend": "local", "metadata": metadata, "content": text}
 
 
 def search_vectors(query: str, top_k: int = 5, target: str = "auto") -> List[Dict[str, str]]:
     results: List[Dict[str, str]] = []
-    query_embedding = local_embedder.embed_text(query)
-    if _use_qdrant(target):
+    query_embedding = embed_text(query)
+    qdrant_mode = _use_qdrant(target)
+    local_mode = _use_local(target)
+
+    if qdrant_mode:
         try:
             results.extend(_search_qdrant(query_embedding, top_k))
         except Exception as exc:
             logger.warning("Qdrant search failed, falling back to local store: %s", exc)
-    if _use_local(target):
+            if target == "qdrant":
+                raise
+            local_mode = True
+
+    if local_mode:
         results.extend(_search_local(query_embedding, top_k))
     # Deduplicate by id while keeping highest score
     deduped: Dict[str, Dict[str, str]] = {}
@@ -156,47 +221,171 @@ def _search_qdrant(query_embedding: np.ndarray, top_k: int) -> List[Dict[str, st
 
 
 def _search_local(query_embedding: np.ndarray, top_k: int) -> List[Dict[str, str]]:
-    index, texts = local_db.build_faiss_index()
+    index, texts, metadatas = local_db.build_faiss_index_with_metadata()
     if index.ntotal == 0:
         return []
     query_vec = np.array([query_embedding], dtype="float32")
-    distances, indices = index.search(query_vec, top_k)
+    scores, indices = index.search(query_vec, top_k)
     hits: List[Dict[str, str]] = []
-    for distance, idx in zip(distances[0], indices[0]):
+    for score, idx in zip(scores[0], indices[0]):
         idx_int = int(idx)
         if idx_int >= len(texts):
             continue
-        score = float(1 / (1 + distance))
+        # BUG 3 FIX: inner product scores are cosine-aligned after normalization.
+        score = float(score)
+        metadata = metadatas[idx_int] if idx_int < len(metadatas) else {"source": "local"}
         hits.append({
             "id": f"local-{idx_int}",
             "score": score,
-            "metadata": {"source": "local", "chunk": idx_int},
+            "metadata": metadata,
             "content": texts[idx_int],
         })
     return hits
 
 
-def rag_answer(query: str, top_k: int = 5, target: str = "auto") -> Dict[str, str]:
-    hits = search_vectors(query, top_k=top_k, target=target)
+def _citations_from_hits(hits: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """Build citation dicts from retrieval hit metadata for the generator."""
+    citations: List[Dict[str, Any]] = []
+    seen: set[str] = set()
+    for hit in hits:
+        meta = hit.get("metadata") or {}
+        if not isinstance(meta, dict):
+            meta = {}
+        citation = {
+            "source": meta.get("source") or meta.get("filename") or meta.get("url"),
+            "chunk_type": meta.get("chunk_type"),
+            "page": meta.get("page"),
+            "function_name": meta.get("function_name"),
+            "class_name": meta.get("class_name"),
+            "row_range": meta.get("row_range"),
+        }
+        citation = {key: value for key, value in citation.items() if value is not None and value != ""}
+        if not citation:
+            continue
+        dedupe_key = "|".join(f"{key}={value}" for key, value in sorted(citation.items()))
+        if dedupe_key in seen:
+            continue
+        seen.add(dedupe_key)
+        citations.append(citation)
+    return citations
+
+
+def rag_answer(
+    query: str,
+    top_k: int = 5,
+    target: str = "auto",
+    session_id: str | None = None,
+) -> Dict[str, Any]:
+    query_lang = detect_language(query)
+    english_query = translate_to_english(query, query_lang)
+    # TASK 1: rewrite query before embedding/retrieval.
+    rewritten_query = rewrite_query(english_query)
+    hits = search_vectors(rewritten_query, top_k=top_k, target=target)
     context = "\n\n".join(hit.get("content", "") for hit in hits if hit.get("content"))
     sanitized_context = _sanitize_output(context)
-    sanitized_query = _sanitize_output(query)
+    sanitized_query = _sanitize_output(english_query)
     if not sanitized_context:
-        return {"answer": "No context available yet. Please ingest content first.", "sources": []}
-    synthesized = summarize_text(f"{sanitized_context}\n\nQuestion: {sanitized_query}")
-    return {"answer": synthesized, "context": sanitized_context, "sources": hits}
+        return {
+            "answer": translate_from_english("No context available yet. Please ingest content first.", query_lang),
+            "sources": [],
+            "recommendations": [],
+            "session_id": session_id,
+        }
+
+    # TASK 3: prepend prior turns when session_id is provided.
+    context_for_generation = sanitized_context
+    if session_id:
+        history = _conversation_manager.get_history(session_id)
+        if history:
+            context_for_generation = f"Previous conversation:\n{history}\n\nContext:\n{sanitized_context}"
+
+    citations = _citations_from_hits(hits)
+    generation = _qa_generator.generate_answer(
+        context_for_generation,
+        sanitized_query,
+        sources=citations,
+    )
+    answer_text = _sanitize_output(str(generation.get("answer", "")))
+    if query_lang != "en":
+        answer_text = translate_from_english(answer_text, query_lang)
+    formatted_sources = generation.get("sources") or []
+
+    if session_id and answer_text:
+        _conversation_manager.add_exchange(session_id, sanitized_query, answer_text)
+
+    recommender = Recommender(target=target)
+    recommendations = recommender.recommend(rewritten_query, top_k=min(3, top_k))
+    return {
+        "answer": answer_text,
+        "sources": formatted_sources,
+        "context": sanitized_context,
+        "recommendations": recommendations,
+        "session_id": session_id,
+    }
+
+
+def get_document_chunks(document_id: str, target: str = "auto") -> tuple[str, List[str]]:
+    """
+    Fetch all chunks for a given document_id.
+
+    The project stores the "document id" as `metadata["source"]` (filename/url/etc).
+    Returns a tuple of (joined_text, chunks_list).
+    """
+
+    source = (document_id or "").strip()
+    if not source:
+        return "", []
+
+    chunks: List[str] = []
+    if _use_local(target):
+        texts, _, metadatas = local_db.get_all_records()
+        for text, meta in zip(texts, metadatas):
+            if (meta.get("source") or meta.get("filename")) == source:
+                chunks.append(text)
+
+    if _use_qdrant(target):
+        try:
+            payloads = qdrant_store.payloads_by_source(source, limit=500)
+            for payload in payloads:
+                content = payload.get("content")
+                if isinstance(content, str) and content.strip():
+                    chunks.append(content)
+        except Exception:
+            pass
+
+    joined = "\n\n".join(chunk.strip() for chunk in chunks if chunk and chunk.strip())
+    return joined, chunks
+
+
+def get_document_text(document_id: str, target: str = "auto") -> str:
+    """Return the full document text for a given document_id (source)."""
+
+    joined, _ = get_document_chunks(document_id, target=target)
+    return joined
 
 
 def summarize_text(text: str, max_length: int = 160) -> str:
-    summarizer = _load_summarizer()
-    snippet = text.strip()
-    if not snippet:
-        return ""
-    if summarizer:
-        result = summarizer(snippet[:1024], max_length=max_length, min_length=60, do_sample=False)
-        raw_summary = result[0]["summary_text"]
-    # Fallback: return first sentences
-    else:
-        sentences = snippet.split(".")
-        raw_summary = ".".join(sentences[:3]).strip()
+    # TASK 4 FIX: delegate summarization to processing.summarization as the single source of truth.
+    raw_summary = processing_summarize_text(text, max_length=max_length, min_length=60)
     return _sanitize_output(raw_summary)
+
+
+def _resolve_chunking_strategy(modality: str, requested: str) -> str:
+    """
+    TASK 3: auto-select chunking when requested is 'auto' or default 'recursive'.
+
+    PDF → recursive | Audio/Video transcript → fixed | URL → semantic | Code → fixed.
+    Explicit fixed/semantic always wins; recursive/auto follow modality rules.
+    """
+    normalized = (requested or "recursive").strip().lower()
+    if normalized not in {"auto", "recursive", ""}:
+        return normalized
+    if modality == "pdf":
+        return "recursive"
+    if modality in {"audio", "video"}:
+        return "fixed"
+    if modality == "url":
+        return "semantic"
+    if modality == "code":
+        return "fixed"
+    return "recursive"

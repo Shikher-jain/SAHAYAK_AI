@@ -1,39 +1,26 @@
-from transformers import pipeline
+from __future__ import annotations
 
-summarizer = pipeline('summarization')
+_summarizer = None
 
-from transformers import pipeline
 
-summarizer = pipeline('summarization')
+def _get_summarizer():
+    global _summarizer
+    if _summarizer is None:
+        try:
+            from transformers import pipeline
 
-def summarize_text(text: str) -> str:
-    summary = summarizer(text, max_length=150, min_length=30, do_sample=False)
-    return summary[0]['summary_text']
-    summary = summarizer(text, max_length=150, min_length=30, do_sample=False)
-    return summary[0]['summary_text']# backend/processing/summarization.py
+            _summarizer = pipeline("summarization", model="facebook/bart-large-cnn")
+        except Exception:
+            _summarizer = None
+    return _summarizer
 
-from transformers import pipeline
 
-class Summarizer:
-    def __init__(self):
-        # Load HuggingFace summarization pipeline
-        self.summarizer = pipeline("summarization", model="facebook/bart-large-cnn")
-
-    def summarize_text(self, text, max_length=150, min_length=50):
-        """
-        Summarize input text.
-        - max_length: max tokens in summary
-        - min_length: minimum tokens in summary
-        """
-        if len(text.strip()) == 0:
-            return ""
-
-        summary = self.summarizer(text, max_length=max_length, min_length=min_length, do_sample=False)
-        return summary[0]['summary_text']
-
-    def summarize_chunks(self, chunks, max_length=150, min_length=50):
-        """Summarize a list of text chunks"""
-        summaries = []
-        for chunk in chunks:
-            summaries.append(self.summarize_text(chunk, max_length=max_length, min_length=min_length))
-        return summaries
+def summarize_text(text: str, max_length: int = 150, min_length: int = 50) -> str:
+    if not text or not text.strip():
+        return ""
+    summarizer = _get_summarizer()
+    if summarizer is None:
+        sentences = [segment.strip() for segment in text.split(".") if segment.strip()]
+        return ". ".join(sentences[:3]).strip() + ("." if sentences else "")
+    result = summarizer(text, max_length=max_length, min_length=min_length, do_sample=False)
+    return result[0]["summary_text"]

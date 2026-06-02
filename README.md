@@ -3,9 +3,9 @@
 **Sahayak_AI** unifies the four historical Sahayak projects into a single multimodal AI assistant platform. It ships with:
 
 - **Multimodal ingestion** (audio, video, image, PDF, text, URL, YouTube) from `Sahayak_09`.
-- **Qdrant-powered vector search** with an automatic **SQLite/FAISS fallback** from `sahayak_09_02`.
+- **Qdrant-powered vector search** with an automatic **SQLite/FAISS fallback** via the local stack.
 - **Rich research workflow assets** (data pipelines, notebooks, scripts, dataset layouts) from `Sahayak`.
-- **Fine-tuning dataset utilities and lightweight HuggingFace UI** from `ahayak`.
+- **Fine-tuning dataset utilities and lightweight HuggingFace UI** via the finetune stack.
 
 Run everything locally or mix-and-match capabilities per deployment target.
 
@@ -16,14 +16,14 @@ Sahayak_AI/
 ├── backend/                 # FastAPI platform API
 │   ├── ingestion/           # Multimodal processors
 │   ├── routers/             # /ingest, /search, /summaries, /local, /finetune, /admin
-│   ├── local_stack/         # SQLite + FAISS fallback pipeline (sahayak_09_02)
-│   └── finetune_stack/      # Stand-alone fine-tuning helper service (ahayak)
+│   ├── local_stack/         # SQLite + FAISS fallback pipeline
+│   └── finetune_stack/      # Stand-alone fine-tuning helper service
 ├── frontend/
 │   └── app.py               # Unified Streamlit UI (multiple modes)
 ├── data/
 │   ├── processed/, raw/     # Research datasets from Sahayak
-│   ├── ahayak/              # Fine-tune dataset & pdf storage
-│   └── sahayak_09_02/       # Local-mode pdf storage + sqlite db
+│   ├── finetune/            # Fine-tune dataset, pdf storage, sqlite db
+│   └── local/               # Local-mode pdf storage + sqlite db
 ├── embeddings/, models/     # Vector indexes & model checkpoints
 ├── scripts/                 # Preprocessing + embedding pipelines
 └── notebooks/demo.ipynb     # Research playground
@@ -79,7 +79,7 @@ Key routes:
 | `/search`    | `/vector` for pure retrieval, `/rag` for retrieval-augmented answers. |
 | `/summaries` | Text summarization (uses transformers pipeline with graceful fallback). |
 | `/local`     | Stand-alone SQLite/FAISS uploader + `/local/ask` endpoint (legacy mode). |
-| `/finetune`  | Append/list LoRA/QLoRA training pairs backed by `data/ahayak/fine_tune_dataset.jsonl`. |
+| `/finetune`  | Append/list LoRA/QLoRA training pairs backed by `data/finetune/fine_tune_dataset.jsonl`. |
 | `/admin`     | Qdrant health, collection metadata, and recent payloads. |
 
 The platform automatically prefers a running Qdrant instance; when it is unavailable the system stores vectors locally in SQLite/FAISS.
@@ -107,7 +107,7 @@ Every ingestion/search endpoint accepts `target` with values:
 
 1. Collect question/answer pairs via `/finetune/examples`.
 2. Inspect them with `/finetune/examples?limit=50` and `/finetune/stats`.
-3. Feed the resulting `data/ahayak/fine_tune_dataset.jsonl` into your preferred PEFT/LoRA trainer (see scripts in `scripts/`).
+3. Feed the resulting `data/finetune/fine_tune_dataset.jsonl` into your preferred PEFT/LoRA trainer (see scripts in `scripts/`).
 
 ## Frontend UI
 
@@ -116,7 +116,7 @@ Every ingestion/search endpoint accepts `target` with values:
 Pick the experience you need from the sidebar mode selector:
 
 - **Pro Dashboard** – tabbed navigation (Upload, Ask, Search, Recommend, Advanced, Roadmap) built from the legacy Sahayak_09 components.
-- **Simplified Upload** – the minimalist sahayak_09_02 workflow with health badges, metrics, and one-click Q&A.
+- **Simplified Upload** – the minimalist local workflow with health badges, metrics, and one-click Q&A.
 - **HuggingFace Mini** – a compact uploader/asker view ideal for Spaces or kiosk deployments.
 
 All modes point at the same backend and share the same component library, so you only have to maintain a single Streamlit file.
@@ -129,7 +129,17 @@ All modes point at the same backend and share the same component library, so you
 
 ## Docker (optional)
 
-Use `docker compose up --build` after crafting your own compose file or reuse the ones from the legacy folders; the backend only needs `uvicorn backend.main:app` and the Streamlit frontend runs via `streamlit run frontend/app.py`.
+The repository now includes a ready-to-run `docker-compose.yml` with three services:
+
+- `qdrant` (vector DB)
+- `backend` (FastAPI on `:8000`)
+- `frontend` (Streamlit on `:8501`)
+
+Run everything side by side with:
+
+```bash
+docker compose up --build
+```
 
 ### Persisting Qdrant storage (fixes `Container filesystem detected` warning)
 

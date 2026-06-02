@@ -1,12 +1,15 @@
 from pathlib import Path
 
-from moviepy import VideoFileClip
-
 from backend.ingestion.audio import transcribe_audio
-from backend.utils.file_utils import get_tmp_path
+from backend.utils.file_utils import get_tmp_path, safe_unlink
 
 
 def extract_audio_from_video(video_path: Path | str) -> Path:
+    try:
+        from moviepy import VideoFileClip
+    except Exception as exc:
+        raise RuntimeError("moviepy is unavailable. Install `moviepy` to enable video ingestion.") from exc
+
     video_path = Path(video_path)
     if not video_path.exists():
         raise FileNotFoundError(f"Video not found: {video_path}")
@@ -19,4 +22,7 @@ def extract_audio_from_video(video_path: Path | str) -> Path:
 
 def transcribe_video(video_path: Path | str, model_size: str = "base") -> str:
     audio_path = extract_audio_from_video(video_path)
-    return transcribe_audio(audio_path, model_size=model_size)
+    try:
+        return transcribe_audio(audio_path, model_size=model_size)
+    finally:
+        safe_unlink(audio_path)

@@ -4,8 +4,6 @@ import math
 from pathlib import Path
 import re
 
-import pdfplumber
-
 HEADER_FOOTER_THRESHOLD = 0.6
 HEADER_FOOTER_MAX_LENGTH = 120
 UNICODE_BULLET_CODES = (0x2022, 0x2023, 0x25E6, 0x2043, 0x2219)
@@ -22,6 +20,11 @@ NOISE_PATTERNS = [
 
 
 def extract_pdf_text(pdf_path: Path | str) -> str:
+    try:
+        import pdfplumber
+    except Exception as exc:
+        raise RuntimeError("pdfplumber is unavailable. Install `pdfplumber` to enable PDF ingestion.") from exc
+
     path = Path(pdf_path)
     with pdfplumber.open(path) as pdf:
         pages = _extract_pages(pdf)
@@ -29,12 +32,17 @@ def extract_pdf_text(pdf_path: Path | str) -> str:
 
 
 def extract_pdf_text_from_bytes(payload: bytes) -> str:
+    try:
+        import pdfplumber
+    except Exception as exc:
+        raise RuntimeError("pdfplumber is unavailable. Install `pdfplumber` to enable PDF ingestion.") from exc
+
     with pdfplumber.open(BytesIO(payload)) as pdf:
         pages = _extract_pages(pdf)
     return _clean_document_text(pages)
 
 
-def _extract_pages(pdf: pdfplumber.PDF) -> list[str]:
+def _extract_pages(pdf) -> list[str]:
     return [page.extract_text() or "" for page in pdf.pages]
 
 

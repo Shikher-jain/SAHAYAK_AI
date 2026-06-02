@@ -1,8 +1,15 @@
+from __future__ import annotations
 
-def process_audio(file_path: str, metadata=None):
+from pathlib import Path
+
 from backend.ingestion.audio import transcribe_audio
+from backend.processing.timeline import extract_timeline
 
-def process_audio(file_path: str, metadata=None):
-    text = transcribe_audio(file_path)
-    # Add business logic, e.g., store transcription, update DB, etc.
-    return text
+
+def process_audio(file_path: str | Path, metadata=None) -> str:
+    return transcribe_audio(file_path)
+
+
+def build_audio_timeline(transcript: str):
+    # TASK 6 FIX: generate a timeline from audio/video transcripts for metadata.
+    return extract_timeline(transcript)

@@ -4,7 +4,8 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
-from backend.routers import admin, finetune, ingestion, local_mode, search, summarize
+from backend.routers import admin, document_features, finetune, ingestion, local_mode, search, summarize, voice
+from backend.utils.file_utils import cleanup_tmp_dir
 
 BASE_DIR = Path(__file__).resolve().parents[1]
 load_dotenv(BASE_DIR / ".env")
@@ -12,6 +13,8 @@ load_dotenv(BASE_DIR / ".env")
 APP_TITLE = "Sahayak AI Platform"
 
 app = FastAPI(title=APP_TITLE)
+
+cleanup_tmp_dir(max_age_seconds=24 * 3600)
 
 app.add_middleware(
     CORSMiddleware,
@@ -25,10 +28,12 @@ app.add_middleware(
 def root():
     return {
         "name": APP_TITLE,
-        "services": [
+        "services": [   
             "/ingest",
             "/search",
             "/summaries",
+            "/document",
+            "/voice",
             "/local",
             "/finetune",
             "/admin",
@@ -47,5 +52,7 @@ app.include_router(admin.router)
 app.include_router(ingestion.router, prefix="/ingest")
 app.include_router(search.router, prefix="/search")
 app.include_router(summarize.router, prefix="/summaries")
+app.include_router(document_features.router)
+app.include_router(voice.router)
 app.include_router(local_mode.router)
 app.include_router(finetune.router)

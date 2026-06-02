@@ -1,8 +1,4 @@
+# DEPRECATED: import from backend.common.embedder instead (unified singleton embedder).
+from backend.common.embedder import embed_text, embed_texts, get_model
 
-from sentence_transformers import SentenceTransformer
-
-# Use a local embedding model, e.g., 'all-MiniLM-L6-v2'
-model = SentenceTransformer('all-MiniLM-L6-v2')
-
-def embed_text(text):
-    return model.encode(text)
+__all__ = ["embed_text", "embed_texts", "get_model"]

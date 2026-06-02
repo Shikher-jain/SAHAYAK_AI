@@ -1,22 +1,23 @@
 import unittest
-from backend.ingestion.pdf import PDFIngestor
 import tempfile
+from pathlib import Path
 
-class TestPDFIngestor(unittest.TestCase):
+from backend.ingestion.pdf import extract_pdf_text
+
+class TestPDFIngestion(unittest.TestCase):
     def setUp(self):
-        self.ingestor = PDFIngestor()
         self.test_pdf = tempfile.NamedTemporaryFile(delete=False, suffix=".pdf")
-        # Create a simple PDF
         from fpdf import FPDF
+
         pdf = FPDF()
         pdf.add_page()
         pdf.set_font("Arial", size=12)
         pdf.cell(200, 10, txt="Hello PDF World!", ln=True)
         pdf.output(self.test_pdf.name)
 
-    def test_ingest_pdf(self):
-        self.ingestor.ingest_pdf(self.test_pdf.name, metadata={"id": "test_pdf"})
-        # No assertion: just check no error
+    def test_extract_pdf_text(self):
+        text = extract_pdf_text(Path(self.test_pdf.name))
+        self.assertIn("Hello PDF World", text)
 
     def tearDown(self):
         import os

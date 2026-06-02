@@ -1,18 +1,25 @@
 import unittest
-from backend.ingestion.video import VideoIngestor
 import os
+import tempfile
+from pathlib import Path
+from unittest.mock import patch
 
-class TestVideoIngestor(unittest.TestCase):
+from backend.ingestion.video import transcribe_video
+
+class TestVideoIngestion(unittest.TestCase):
     def setUp(self):
-        self.ingestor = VideoIngestor()
-        self.test_video = "test_video.mp4"
-        # Create a dummy video file
-        with open(self.test_video, "wb") as f:
-            f.write(b"00fakevideo")
+        handle = tempfile.NamedTemporaryFile(delete=False, suffix=".mp4")
+        handle.write(b"00fakevideo")
+        handle.close()
+        self.test_video = handle.name
 
-    def test_ingest_video(self):
-        result = self.ingestor.ingest_video(self.test_video, metadata={"id": "test_video"})
-        self.assertEqual(result["status"], "success")
+    def test_transcribe_video(self):
+        fake_audio = Path(self.test_video).with_suffix(".wav")
+        with patch("backend.ingestion.video.extract_audio_from_video", return_value=fake_audio), patch(
+            "backend.ingestion.video.transcribe_audio", return_value="spoken content"
+        ), patch("backend.ingestion.video.safe_unlink"):
+            result = transcribe_video(self.test_video)
+        self.assertEqual(result, "spoken content")
 
     def tearDown(self):
         if os.path.exists(self.test_video):

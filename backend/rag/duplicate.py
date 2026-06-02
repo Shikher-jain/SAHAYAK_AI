@@ -5,7 +5,7 @@ from typing import Dict, List, Set
 
 import numpy as np
 
-from backend.local_stack import embedder as local_embedder
+from backend.common.embedder import embed_text
 from backend.services import vector_service
 
 
@@ -32,14 +32,14 @@ class DuplicateDetector:
     def check_duplicates(self, new_text: str, top_k: int = 5) -> List[Dict[str, str]]:
         if not new_text.strip():
             return []
-        query_vec = local_embedder.embed_text(new_text)
+        query_vec = embed_text(new_text)
         candidates = vector_service.search_vectors(new_text, top_k=top_k, target=self.target)
         duplicates: List[Dict[str, str]] = []
         for candidate in candidates:
             content = candidate.get("content", "")
             if not content:
                 continue
-            candidate_vec = local_embedder.embed_text(content)
+            candidate_vec = embed_text(content)
             similarity = self._cosine(query_vec, candidate_vec)
             if similarity >= self.threshold:
                 duplicates.append({

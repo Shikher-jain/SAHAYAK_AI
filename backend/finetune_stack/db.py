@@ -1,56 +1,26 @@
-import sqlite3
-import pickle
+from typing import List, Tuple
+
 import faiss
 import numpy as np
-import os
 
-DB_PATH = "pdf_memory.db"
-EMBED_DIM = 384  # for 'all-MiniLM-L6-v2'
+from backend.common.data_paths import get_finetune_db_path
+from backend.local_stack.store_base import SQLiteFaissStore
 
-# Initialize DB
-def init_db():
-    conn = sqlite3.connect(DB_PATH)
-    cur = conn.cursor()
-    cur.execute("""
-        CREATE TABLE IF NOT EXISTS pdfs (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            filename TEXT,
-            text_chunk TEXT,
-            embedding BLOB
-        )
-    """)
-    conn.commit()
-    conn.close()
+DB_PATH = get_finetune_db_path()
+EMBED_DIM = 384
 
-# Add chunk with embedding
-def add_chunk(filename, chunk_text, embedding):
-    conn = sqlite3.connect(DB_PATH)
-    cur = conn.cursor()
-    emb_blob = pickle.dumps(embedding)
-    cur.execute("INSERT INTO pdfs (filename, text_chunk, embedding) VALUES (?, ?, ?)",
-                (filename, chunk_text, emb_blob))
-    conn.commit()
-    conn.close()
-# Get all embeddings and texts
-def get_all_chunks():
-    conn = sqlite3.connect(DB_PATH)
-    cur = conn.cursor()
-    cur.execute("SELECT text_chunk, embedding FROM pdfs")
-    rows = cur.fetchall()
-    texts, embeddings = [], []
-    for t, e in rows:
-        texts.append(t)
-        embeddings.append(pickle.loads(e))
-    conn.close()
-    return texts, np.array(embeddings, dtype='float32')
+_store = SQLiteFaissStore(DB_PATH, embed_dim=EMBED_DIM)
 
-# Build FAISS index from DB
-def build_faiss_index():
-    texts, embeddings = get_all_chunks()
-    if len(embeddings) == 0:
-        index = faiss.IndexFlatL2(EMBED_DIM)
-    else:
-        index = faiss.IndexFlatL2(EMBED_DIM)
-        index.add(embeddings)
-    return index, texts
+def init_db() -> None:
+    _store.init_db()
+
+def add_chunk(filename: str, chunk_text: str, embedding: np.ndarray) -> None:
+    _store.add_chunk(filename, chunk_text, embedding)
+
+def get_all_chunks() -> Tuple[List[str], np.ndarray]:
+    return _store.get_all_chunks()
+
+
+def build_faiss_index() -> Tuple[faiss.IndexFlatL2, List[str]]:
+    return _store.build_faiss_index()
 

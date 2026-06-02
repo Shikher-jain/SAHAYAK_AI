@@ -72,6 +72,33 @@ class QdrantStore:
         self._client.upsert(collection_name=self.collection_name, points=[point])
         return {"id": point_id, "metadata": metadata, "content": text}
 
+    def upsert_texts(
+        self,
+        texts: List[str],
+        metadatas: List[Dict[str, Any]],
+        embeddings: np.ndarray,
+    ) -> List[Dict[str, Any]]:
+        if not self._client:
+            raise RuntimeError("Qdrant client is not available")
+        if not texts:
+            return []
+        vectors = embeddings.tolist() if isinstance(embeddings, np.ndarray) else embeddings
+        ids = [uuid.uuid4().hex for _ in texts]
+        payloads = []
+        for text, metadata in zip(texts, metadatas):
+            payloads.append({**metadata, "content": text})
+        # TASK 2: upload_collection sends all vectors in one batch (vs per-chunk upsert loops).
+        self._client.upload_collection(
+            collection_name=self.collection_name,
+            vectors=vectors,
+            payload=payloads,
+            ids=ids,
+        )
+        return [
+            {"id": point_id, "metadata": metadata, "content": text}
+            for point_id, metadata, text in zip(ids, metadatas, texts)
+        ]
+
     def search(self, embedding: np.ndarray, top_k: int = 5) -> List[Dict[str, Any]]:
         if not self._client:
             raise RuntimeError("Qdrant client is not available")
@@ -103,6 +130,37 @@ class QdrantStore:
                 collection_name=self.collection_name,
                 limit=limit,
                 with_payload=True,
+            )
+            return [point.payload or {} for point in points]
+        except Exception:
+            return []
+
+    def payloads_by_source(self, source: str, limit: int = 250) -> List[Dict[str, Any]]:
+        """
+        Fetch payloads for a specific source identifier.
+
+        This is used to reconstruct full documents by `metadata["source"]` (filename/url/etc).
+        Returns an empty list when Qdrant is unavailable or filtering is unsupported.
+        """
+
+        if not self._client or not qmodels:
+            return []
+        resolved = (source or "").strip()
+        if not resolved:
+            return []
+        try:
+            points, _ = self._client.scroll(
+                collection_name=self.collection_name,
+                limit=limit,
+                with_payload=True,
+                scroll_filter=qmodels.Filter(
+                    must=[
+                        qmodels.FieldCondition(
+                            key="source",
+                            match=qmodels.MatchValue(value=resolved),
+                        )
+                    ]
+                ),
             )
             return [point.payload or {} for point in points]
         except Exception:

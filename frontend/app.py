@@ -1,5 +1,6 @@
 import json
 import os
+import uuid
 from typing import Dict, Optional, Tuple
 
 import requests
@@ -8,6 +9,7 @@ import streamlit as st
 PAGE_TITLE = "Sahayak - Unified AI Workspace"
 PAGE_ICON = "image.png"
 BACKEND_URL = os.getenv("BACKEND_URL", "http://127.0.0.1:8000")
+ENV_API_KEY = os.getenv("SAHAYAK_API_KEY", "").strip()
 
 INGESTION_ROUTES: Dict[str, Tuple[str, str]] = {
     ".pdf": ("/ingest/pdf", "application/pdf"),
@@ -20,6 +22,15 @@ INGESTION_ROUTES: Dict[str, Tuple[str, str]] = {
     ".mov": ("/ingest/video", "video/quicktime"),
     ".avi": ("/ingest/video", "video/x-msvideo"),
     ".txt": ("/ingest/text", "text/plain"),
+    ".py": ("/ingest/code", "text/x-python"),
+    ".js": ("/ingest/code", "application/javascript"),
+    ".ts": ("/ingest/code", "application/typescript"),
+    ".cpp": ("/ingest/code", "text/x-c++src"),
+    ".java": ("/ingest/code", "text/x-java-source"),
+    ".go": ("/ingest/code", "text/plain"),
+    ".csv": ("/ingest/csv", "text/csv"),
+    ".xlsx": ("/ingest/csv", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"),
+    ".xls": ("/ingest/csv", "application/vnd.ms-excel"),
 }
 
 
@@ -28,14 +39,38 @@ def _init_backend_url() -> None:
         st.session_state.backend_url = BACKEND_URL
 
 
+def _configured_api_key() -> str:
+    try:
+        secret_key = st.secrets.get("SAHAYAK_API_KEY", "")
+    except Exception:
+        secret_key = ""
+    return (secret_key or ENV_API_KEY).strip()
+
+
+def _init_api_key() -> None:
+    if "api_key" not in st.session_state:
+        configured = _configured_api_key()
+        if configured:
+            st.session_state.api_key = configured
+
+
+def _get_api_key() -> str:
+    return st.session_state.get("api_key") or _configured_api_key()
+
+
 def _get_backend_url() -> str:
     return st.session_state.get("backend_url", BACKEND_URL)
 
 
 def _call_backend(method: str, path: str, **kwargs) -> Tuple[bool, Optional[Dict], str]:
     url = f"{_get_backend_url()}{path}"
+    headers = dict(kwargs.pop("headers", {}) or {})
+    api_key = _get_api_key()
+    if api_key:
+        # BUG 1 FIX: send API key header for every backend request.
+        headers["X-API-Key"] = api_key
     try:
-        resp = requests.request(method.upper(), url, timeout=kwargs.pop("timeout", 60), **kwargs)
+        resp = requests.request(method.upper(), url, timeout=kwargs.pop("timeout", 60), headers=headers, **kwargs)
     except requests.RequestException as exc:
         return False, None, str(exc)
     if resp.status_code >= 400:
@@ -66,8 +101,36 @@ def _ingest_url(url_text: str) -> Tuple[bool, Optional[Dict], str]:
     return _call_backend("post", "/ingest/url", data={"url": url_text})
 
 
-def _rag_answer(question: str, top_k: int) -> Tuple[bool, Optional[Dict], str]:
+def _ensure_rag_session() -> str:
+    if "rag_session_id" not in st.session_state or not st.session_state.rag_session_id:
+        st.session_state.rag_session_id = str(uuid.uuid4())
+    return st.session_state.rag_session_id
+
+
+def _display_sources(sources: list) -> None:
+    if not sources:
+        return
+    with st.expander("📚 Sources", expanded=False):
+        for idx, source in enumerate(sources, 1):
+            if isinstance(source, dict):
+                label = source.get("label") or source.get("source", "unknown")
+                details = []
+                for key in ("chunk_type", "page", "function_name", "class_name", "row_range"):
+                    value = source.get(key)
+                    if value:
+                        details.append(f"{key}: {value}")
+                line = f"**{idx}.** {label}"
+                if details:
+                    line += f" — {', '.join(details)}"
+                st.markdown(line)
+            else:
+                st.markdown(f"**{idx}.** {source}")
+
+
+def _rag_answer(question: str, top_k: int, session_id: Optional[str] = None) -> Tuple[bool, Optional[Dict], str]:
     data = {"query": question, "top_k": top_k}
+    if session_id:
+        data["session_id"] = session_id
     return _call_backend("post", "/search/rag", data=data)
 
 
@@ -103,6 +166,7 @@ def _status_badge() -> None:
 
 def _sidebar_backend_controls() -> None:
     current_url = _get_backend_url()
+    configured_key = _configured_api_key()
     st.sidebar.markdown("### Backend API")
     st.sidebar.markdown(f"[Open FastAPI docs]({current_url}/docs)")
     new_url = st.sidebar.text_input(
@@ -116,6 +180,17 @@ def _sidebar_backend_controls() -> None:
         if cleaned:
             st.session_state.backend_url = cleaned
             st.sidebar.success(f"Backend set to {cleaned}")
+    if not configured_key:
+        api_key = st.sidebar.text_input("API key", type="password", key="sidebar_api_key")
+        if st.sidebar.button("Save API key", key="sidebar_api_key_apply"):
+            cleaned_key = api_key.strip()
+            if cleaned_key:
+                st.session_state.api_key = cleaned_key
+                st.sidebar.success("API key saved for this session")
+            else:
+                st.sidebar.error("API key cannot be empty")
+    else:
+        st.sidebar.caption("API key loaded from environment or secrets")
     st.sidebar.markdown("---")
 
 
@@ -157,7 +232,7 @@ def quick_ingest_and_ask() -> None:
     with col1:
         uploaded = st.file_uploader(
             "Drop PDF / Image / Audio / Video",
-            type=["pdf", "png", "jpg", "jpeg", "wav", "mp3", "mp4", "mov", "avi"],
+            type=["pdf", "png", "jpg", "jpeg", "wav", "mp3", "mp4", "mov", "avi", "py", "js", "ts", "cpp", "java", "go", "csv", "xlsx", "xls"],
             key="quick_uploader",
         )
         if uploaded and st.button("Ingest File", key="quick_ingest_btn"):
@@ -183,15 +258,14 @@ def quick_ingest_and_ask() -> None:
             if not question.strip():
                 st.warning("Provide a question first.")
             else:
+                session_id = _ensure_rag_session()
                 with st.spinner("Querying RAG pipeline..."):
-                    ok, payload, detail = _rag_answer(question, top_k)
+                    ok, payload, detail = _rag_answer(question, top_k, session_id=session_id)
                 if ok and payload:
-                    st.success(payload.get("answer", "No answer yet"))
-                    if payload.get("sources"):
-                        with st.expander("Sources", expanded=False):
-                            for idx, chunk in enumerate(payload["sources"], 1):
-                                text_value = chunk.get("content") or chunk.get("text", "")
-                                st.markdown(f"**{idx}.** {text_value}")
+                    if payload.get("session_id"):
+                        st.session_state.rag_session_id = payload["session_id"]
+                    st.markdown(payload.get("answer", "No answer yet"))
+                    _display_sources(payload.get("sources") or [])
                 else:
                     st.error(f"RAG error: {detail}")
 
@@ -259,7 +333,7 @@ def workspace_tabs() -> None:
 def upload_component() -> None:
     upload = st.file_uploader(
         "Select file",
-        type=["pdf", "png", "jpg", "jpeg", "wav", "mp3", "mp4", "mov", "avi", "txt"],
+        type=["pdf", "png", "jpg", "jpeg", "wav", "mp3", "mp4", "mov", "avi", "txt", "py", "js", "ts", "cpp", "java", "go", "csv", "xlsx", "xls"],
         key="tab_file_uploader",
     )
     if upload and st.button("Process", key="tab_file_btn"):
@@ -279,15 +353,18 @@ def mini_lab() -> None:
 
         lab_question = st.text_input("Ask", key="lab_question")
         if st.button("Lab Ask", key="lab_ask_btn") and lab_question:
-            ok, payload, detail = _rag_answer(lab_question, 3)
+            session_id = _ensure_rag_session()
+            ok, payload, detail = _rag_answer(lab_question, 3, session_id=session_id)
             if ok and payload:
-                st.success(payload.get("answer", "No answer yet"))
+                st.markdown(payload.get("answer", "No answer yet"))
+                _display_sources(payload.get("sources") or [])
             else:
                 st.error(f"Lab error: {detail}")
 
 
 def main() -> None:
     _init_backend_url()
+    _init_api_key()
     st.set_page_config(page_title=PAGE_TITLE, page_icon=PAGE_ICON, layout="wide")
     hero_banner()
     _sidebar_backend_controls()
