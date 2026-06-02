@@ -198,18 +198,24 @@ def page_dashboard():
     # Quick actions
     st.subheader("⚡ Quick Actions")
     c1, c2, c3, c4 = st.columns(4)
+
     if c1.button("📤 Upload Document", use_container_width=True):
-        st.session_state.page = _ui("upload")
+        st.session_state["page"] = "Upload"
+        st.session_state["nav_radio"] = "Upload"
         st.rerun()
     if c2.button("💬 Ask a Question", use_container_width=True):
-        st.session_state.page = _ui("chat")
+        st.session_state["page"] = "Search"
+        st.session_state["nav_radio"] = "Search"
         st.rerun()
     if c3.button("📝 Take a Quiz", use_container_width=True):
-        st.session_state.page = _ui("quiz")
+        st.session_state["page"] = "Quiz"
+        st.session_state["nav_radio"] = "Quiz"
         st.rerun()
     if c4.button("🗺️ View Roadmaps", use_container_width=True):
-        st.session_state.page = _ui("roadmaps")
+        st.session_state["page"] = "Roadmaps"
+        st.session_state["nav_radio"] = "Roadmaps"
         st.rerun()
+    
     # Recent activity / stories
     st.markdown("---")
     st.subheader("💬 What Our Users Say")
@@ -823,92 +829,53 @@ def _render_help_bot():
                 else:
                     st.warning("Could not reach help bot.")
 
-
 # --- Main app ---
-
 def main():
     _init_state()
     st.set_page_config(page_title=PAGE_TITLE, page_icon=PAGE_ICON, layout="wide")
+
+    if not st.session_state.get("auth_token"):
+        st.switch_page("pages/login.py")
+        return
+
     _apply_theme()
 
-    # Sidebar navigation
     with st.sidebar:
         st.markdown("### Sahayak AI")
-        # Language selector
         lang = st.selectbox("Language", ["en", "hi", "es", "fr", "de"], index=0, key="lang_selector",
                             format_func=lambda x: {"en": "English", "hi": "हिन्दी", "es": "Español", "fr": "Français", "de": "Deutsch"}.get(x, x))
-        if lang != st.session_state.language:
-            st.session_state.language = lang
-
-        # Backend URL config
-        new_url = st.text_input("Backend URL", value=_get_backend_url(), key="sidebar_url")
-        if st.button("Apply URL"):
-            st.session_state.backend_url = new_url.strip()
-
-        # API key
-        if not _get_api_key():
-            api_key = st.text_input("API Key", type="password", key="sidebar_apikey")
-            if st.button("Save Key"):
-                st.session_state.api_key = api_key.strip()
-
+        st.session_state.language = lang
         st.markdown("---")
-        # Navigation
-        pages = [
-            _ui("dashboard"), _ui("upload"), _ui("search"), _ui("learn"),
-            _ui("quiz"), _ui("chat"), _ui("roadmaps"), _ui("books"),
-            _ui("counselor"), _ui("knowledge"), _ui("progress"),
-            _ui("stories"), _ui("pricing"), _ui("help"), _ui("sync"),
-            "Contact", "Settings", "About", _ui("profile"),
-        ]
-        selected = st.radio("Navigate", pages, key="nav_radio", label_visibility="collapsed")
-        if selected != st.session_state.page:
-            st.session_state.page = selected
+        pages = ["Dashboard", "Upload", "Search", "Learn", "Quiz", "Chat",
+                 "Roadmaps", "Books", "Counselor", "Knowledge Graph", "Progress",
+                 "Stories", "Pricing", "Help", "Sync", "Contact", "Settings", "About", "Profile"]
+        current = st.session_state.get("page", "Dashboard")
+        if current not in pages:
+            current = "Dashboard"
+        
+        selected = st.radio("Navigate", pages, index=pages.index(current), label_visibility="collapsed")
+        if selected != st.session_state.get("page"):
+            st.session_state["page"] = selected
             st.rerun()
-
-    # Floating help bot (rendered in sidebar)
+        
+        # selected = st.radio("Navigate", pages, index=pages.index(current), key="nav_radio", label_visibility="collapsed")
+        # if selected != st.session_state.get("page"):
+        #     st.session_state["page"] = selected
+        #     st.rerun()
+    
     _render_help_bot()
-
-    # Route to page
-    page = st.session_state.page
     page_map = {
-        _ui("dashboard"): page_dashboard,
-        "Dashboard": page_dashboard,
-        _ui("upload"): page_upload,
-        "Upload": page_upload,
-        _ui("search"): page_search,
-        "Search": page_search,
-        _ui("chat"): page_search,
-        "Chat": page_search,
-        _ui("learn"): page_learn,
-        "Learn": page_learn,
-        _ui("roadmaps"): page_roadmaps,
-        "Roadmaps": page_roadmaps,
-        _ui("books"): page_books,
-        "Books": page_books,
-        _ui("counselor"): page_counselor,
-        "Counselor": page_counselor,
-        _ui("quiz"): page_quiz,
-        "Quiz": page_quiz,
-        _ui("pricing"): page_pricing,
-        "Pricing": page_pricing,
-        _ui("profile"): page_profile,
+        "Dashboard": page_dashboard, "Upload": page_upload,
+        "Search": page_search, "Chat": page_search,
+        "Learn": page_learn, "Quiz": page_quiz,
+        "Roadmaps": page_roadmaps, "Books": page_books,
+        "Counselor": page_counselor, "Knowledge Graph": page_knowledge,
+        "Progress": page_progress, "Stories": page_stories,
+        "Pricing": page_pricing, "Help": page_help,
+        "Sync": page_sync, "Contact": page_contact,
+        "Settings": page_settings, "About": page_about,
         "Profile": page_profile,
-        _ui("help"): page_help,
-        "Help": page_help,
-        _ui("stories"): page_stories,
-        "Stories": page_stories,
-        _ui("progress"): page_progress,
-        "Progress": page_progress,
-        _ui("knowledge"): page_knowledge,
-        "Knowledge": page_knowledge,
-        _ui("sync"): page_sync,
-        "Sync": page_sync,
-        "Contact": page_contact,
-        "Settings": page_settings,
-        "About": page_about,
     }
-    renderer = page_map.get(page, page_dashboard)
-    renderer()
-
+    page_map.get(st.session_state.page, page_dashboard)()
 
 main()

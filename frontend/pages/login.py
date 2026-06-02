@@ -42,7 +42,9 @@ def show_auth_page():
                     st.session_state.auth_user = data["username"]
                     st.session_state.auth_role = data["role"]
                     st.success(f"Welcome back, {data['username']}!")
-                    st.rerun()
+                    st.switch_page("app.py")        
+                    # st.success(f"Welcome back, {data['username']}!")
+                    # st.rerun()
                 else:
                     detail = resp.json().get("detail", "Login failed") if resp else "Server unreachable"
                     st.error(detail)
@@ -72,3 +74,5 @@ def show_auth_page():
 
 def is_authenticated() -> bool:
     return bool(st.session_state.get("auth_token"))
+
+show_auth_page()

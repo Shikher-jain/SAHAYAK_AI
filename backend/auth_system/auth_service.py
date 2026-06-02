@@ -5,10 +5,12 @@ import os
 from datetime import datetime, timedelta
 from typing import Optional
 
+import hashlib
+
+import bcrypt
 from fastapi import Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer
 from jose import JWTError, jwt
-from passlib.context import CryptContext
 from sqlalchemy.orm import Session
 
 from backend.auth_system.database import get_db
@@ -20,18 +22,29 @@ SECRET_KEY = os.getenv("JWT_SECRET_KEY", "sahayak-super-secret-key-change-in-pro
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = int(os.getenv("JWT_EXPIRE_MINUTES", "1440"))  # 24h default
 
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/auth/login", auto_error=False)
 
 
-# --- Password helpers ---
+# --- Password helpers (direct bcrypt with SHA256 pre-hash) ---
+
+def _sha256_digest(password: str) -> bytes:
+    """SHA256-hash the password to produce a fixed 32-byte input for bcrypt."""
+    return hashlib.sha256(password.encode("utf-8")).hexdigest().encode("utf-8")
+
 
 def hash_password(password: str) -> str:
-    return pwd_context.hash(password)
+    """Hash password using bcrypt with SHA256 pre-hashing."""
+    digest = _sha256_digest(password)
+    return bcrypt.hashpw(digest, bcrypt.gensalt()).decode("utf-8")
 
 
 def verify_password(plain: str, hashed: str) -> bool:
-    return pwd_context.verify(plain, hashed)
+    """Verify a password against a stored hash."""
+    digest = _sha256_digest(plain)
+    try:
+        return bcrypt.checkpw(digest, hashed.encode("utf-8"))
+    except Exception:
+        return False
 
 
 # --- JWT helpers ---
