@@ -3,3 +3,15 @@
 __pycache__/
 *.pyc
 venv/
+# Added by code-review-graph
+.code-review-graph/
+
+*.mp4
+*.mp3
+*.wav
+__pycache__/
+.pytest_cache/
+.qoder/
+venv/
+.env
+*.db
