@@ -8,6 +8,7 @@ router = APIRouter(prefix="/pages", tags=["pages"])
 
 @router.get("/privacy")
 def privacy_policy():
+    # MOCK DATA
     """Return the Sahayak AI privacy policy."""
     return {
         "title": "Sahayak AI Privacy Policy",
@@ -70,6 +71,7 @@ def privacy_policy():
 
 @router.get("/contact")
 def contact_info():
+    # MOCK DATA
     """Return Sahayak AI contact information and social media handles."""
     return {
         "email": "hello@sahayak.ai",
@@ -92,6 +94,7 @@ def contact_info():
 
 @router.get("/pricing")
 def pricing_plans():
+    # MOCK DATA
     """Return Sahayak AI pricing tiers."""
     return {
         "plans": [

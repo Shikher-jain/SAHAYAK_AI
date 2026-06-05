@@ -247,7 +247,9 @@ def page_upload():
                 if ok:
                     st.success(f"✅ Ingested {uploaded.name}")
                     ingested_name = uploaded.name
-                    ingested_doc_id = uploaded.name
+                    ingested_doc_id = None
+                    if isinstance(payload, dict):
+                        ingested_doc_id = payload.get("document_id") or payload.get("id") or uploaded.name
                     # Show auto-tags if available
                     tags = []
                     if isinstance(payload, dict):
@@ -540,11 +542,15 @@ def page_quiz():
 
 
 def page_pricing():
-    st.header(f"{_ui('pricing')}")
+    st.header(f"{_ui(\'pricing\')}")
     ok, data, _ = _call_backend("get", "/pages/pricing")
     if ok and data:
-        cols = st.columns(len(data.get("plans", [])))
-        for idx, plan in enumerate(data.get("plans", [])):
+        plans = data.get("plans", [])
+        if not plans:
+            st.info("No pricing plans available.")
+            return
+        cols = st.columns(len(plans))
+        for idx, plan in enumerate(plans):
             with cols[idx]:
                 st.markdown(f"### {plan['name']}")
                 price = plan.get("price")
@@ -831,8 +837,8 @@ def _render_help_bot():
 
 # --- Main app ---
 def main():
-    _init_state()
     st.set_page_config(page_title=PAGE_TITLE, page_icon=PAGE_ICON, layout="wide")
+    _init_state()
 
     if not st.session_state.get("auth_token"):
         st.switch_page("pages/login.py")

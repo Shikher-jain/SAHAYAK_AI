@@ -48,7 +48,7 @@ def generate_quiz_from_context(context: str, num_questions: int = 5) -> List[Dic
         f"Content:\n{context[:2000]}\n\nQuestions JSON:"
     )
     try:
-        result = gen.generate_answer(context[:2000], f"Generate {num_questions} quiz questions", sources=None)
+        result = gen.generate_answer(context[:2000], prompt, sources=None)
         # Parse the answer as JSON; fall back to simple extraction
         answer_text = result.get("answer", "")
         # Try to extract JSON array from the response
@@ -58,7 +58,10 @@ def generate_quiz_from_context(context: str, num_questions: int = 5) -> List[Dic
             questions = json.loads(answer_text[start:end])
             return questions
     except Exception:
-        pass
+        import logging
+        logger = logging.getLogger("sahayak.quiz_service")
+        raw_preview = locals().get('answer_text', '')[:500] if isinstance(locals().get('answer_text'), str) else "N/A"
+        logger.warning("Quiz generation JSON parse failed. Raw LLM output (first 500 chars): %s", raw_preview)
     # Fallback: generate simple fill-in-the-blank questions from sentences
     return _fallback_quiz(context, num_questions)
 

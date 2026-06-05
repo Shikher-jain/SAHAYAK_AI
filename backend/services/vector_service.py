@@ -430,3 +430,11 @@ def _resolve_chunking_strategy(modality: str, requested: str) -> str:
     if modality == "code":
         return "fixed"
     return "recursive"
+
+
+def check_vector_db() -> str:
+    """Return 'qdrant' if Qdrant is available, 'faiss' otherwise."""
+    # FIX 2: Add a health check function for the vector database.
+    if qdrant_store.is_available:
+        return "qdrant"
+    return "faiss"

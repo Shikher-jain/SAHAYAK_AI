@@ -14,9 +14,12 @@ from __future__ import annotations
 
 import os
 import re
+import logging
 from typing import Any, Dict, List, Optional
 
 from backend.rag.system_prompt import build_system_prompt, build_user_prompt, build_follow_up_prompt
+
+logger = logging.getLogger("sahayak.generator")
 
 
 class Generator:
@@ -45,11 +48,17 @@ class Generator:
             return self._backend
         if os.getenv("GROQ_API_KEY"):
             self._backend = "groq"
+            # FIX 1: Add logging for LLM backend selection
+            logger.info("Using Groq backend for LLM generation.")
             return self._backend
         if os.getenv("OPENAI_API_KEY"):
             self._backend = "openai"
+            # FIX 1: Add logging for LLM backend selection
+            logger.info("Using OpenAI backend for LLM generation.")
             return self._backend
         self._backend = "hf"
+        # FIX 1: Add logging for LLM backend selection
+        logger.info("Using HuggingFace fallback for LLM generation.")
         return self._backend
 
     # ------------------------------------------------------------------
@@ -228,14 +237,20 @@ class Generator:
             if backend == "groq":
                 answer = self._generate_groq(system_prompt, user_prompt) or ""
                 if not answer:
+                    # FIX 1: Log fallback if Groq fails
+                    logger.warning("Groq generation failed or returned empty, falling back.")
                     backend = "openai" if os.getenv("OPENAI_API_KEY") else "hf"
             if not answer and backend == "openai":
                 answer = self._generate_openai(system_prompt, user_prompt) or ""
                 if not answer:
+                    # FIX 1: Log fallback if OpenAI fails
+                    logger.warning("OpenAI generation failed or returned empty, falling back to HuggingFace.")
                     backend = "hf"
             if not answer and backend == "hf":
                 hf_model = self._get_hf_model()
                 if hf_model is None:
+                    # FIX 1: Log fallback if HuggingFace model fails to load
+                    logger.warning("HuggingFace model not loaded, falling back to keyword answer.")
                     answer = self._fallback_answer(context, question)
                 else:
                     # Seq2SeqGenerator wrapper — pipeline-compatible interface

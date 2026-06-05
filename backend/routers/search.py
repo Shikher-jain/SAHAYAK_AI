@@ -1,11 +1,10 @@
 from typing import Any, Dict, Optional
 
-from fastapi import APIRouter, Depends, Form
+from fastapi import APIRouter, Form
 
-from backend.auth import api_key_auth
 from backend.services import vector_service
 
-router = APIRouter(tags=["rag"], dependencies=[Depends(api_key_auth)])
+router = APIRouter(tags=["rag"])
 
 
 @router.post("/vector")

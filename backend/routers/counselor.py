@@ -27,4 +27,4 @@ def counselor_chat(req: CounselorChatRequest):
 @router.get("/suggestions")
 def domain_suggestions(domain: str = "stem") -> List[Dict[str, str]]:
     """Get pre-built career suggestions for a domain."""
-    return _counselor.get_domain_suggestions(domain)
+    return _counselor.get_domain_suggestions(domain) # MOCK DATA: Returns pre-built suggestions from the service.

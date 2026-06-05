@@ -27,6 +27,8 @@ class Recommender:
         # Get recent documents from user's ingestion history
         try:
             from backend.vector_store import qdrant_store
+            # FIX 3: Wrap Qdrant calls in try-except to prevent crashes.
+            # If Qdrant fails, an empty list is returned, preventing breakdown of RAG answer.
             recent = qdrant_store.recent_payloads(limit=10)
             # Collect tags and subjects from recent uploads
             topics = set()

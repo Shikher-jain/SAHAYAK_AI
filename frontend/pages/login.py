@@ -19,7 +19,6 @@ def _call_auth(method: str, path: str, **kwargs):
 
 def show_auth_page():
     """Display login/register forms."""
-    st.set_page_config(page_title="Sahayak - Login", page_icon="image.png", layout="centered")
     st.markdown(
         '<div style="text-align:center;font-size:2.5rem;font-weight:700;">Sahayak AI</div>'
         '<div style="text-align:center;color:#666;">Your AI Learning Companion</div>',
