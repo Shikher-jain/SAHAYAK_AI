@@ -542,7 +542,7 @@ def page_quiz():
 
 
 def page_pricing():
-    st.header(f"{_ui(\'pricing\')}")
+    st.header(f"{_ui('pricing')}")
     ok, data, _ = _call_backend("get", "/pages/pricing")
     if ok and data:
         plans = data.get("plans", [])
