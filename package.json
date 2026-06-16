@@ -1,0 +1,24 @@
+{
+  "name": "sahayak_ai",
+  "version": "1.0.0",
+  "description": "A production-grade, full-stack AI learning platform featuring **Multimodal RAG**, **JWT Authentication**, **Conversational Memory**, and **Multilingual Support**.",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Shikher-jain/SAHAYAK_AI.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "bugs": {
+    "url": "https://github.com/Shikher-jain/SAHAYAK_AI/issues"
+  },
+  "homepage": "https://github.com/Shikher-jain/SAHAYAK_AI#readme",
+  "dependencies": {
+    "docx": "^9.7.1"
+  }
+}

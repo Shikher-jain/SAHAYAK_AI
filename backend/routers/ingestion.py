@@ -59,7 +59,7 @@ async def ingest_image_endpoint(file: UploadFile = File(...), target: str = "aut
         safe_unlink(tmp_path)
 
 
-@router.post("/pdf")
+@router.post("/pdf", dependencies=[])
 async def ingest_pdf_endpoint(file: UploadFile = File(...), target: str = "auto"):
     tmp_path, payload = await _persist_upload(file)
     try:

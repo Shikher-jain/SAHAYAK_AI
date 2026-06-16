@@ -251,6 +251,12 @@ fork → create branch → commit → push → pull request
 
 ---
 
+## 📄 Research Paper
+
+[Research Paper (zenodo)](https://zenodo.org/records/20682334)
+
+---
+
 ## 📄 License
 
 MIT License
