@@ -4,8 +4,10 @@ from __future__ import annotations
 from datetime import timedelta
 from typing import List
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlalchemy.orm import Session
+
+from backend.common.rate_limit import limiter
 
 from backend.auth_system.auth_service import (
     ACCESS_TOKEN_EXPIRE_MINUTES,
@@ -32,7 +34,8 @@ def register(user_in: UserCreate, db: Session = Depends(get_db)):
 
 
 @router.post("/login", response_model=Token)
-def login(form: UserLogin, db: Session = Depends(get_db)):
+@limiter.limit("5/minute")
+def login(request: Request, form: UserLogin, db: Session = Depends(get_db)):
     """Authenticate and receive a JWT access token."""
     user = authenticate_user(db, form.username, form.password)
     if not user:

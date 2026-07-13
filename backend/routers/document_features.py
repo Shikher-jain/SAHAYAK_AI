@@ -1,8 +1,9 @@
-from fastapi import APIRouter, HTTPException, Depends
+from fastapi import APIRouter, HTTPException, Depends, Request
 from pydantic import BaseModel
 from typing import List, Optional
 
 from backend.common.hf_models import HFModels
+from backend.common.rate_limit import limiter
 from backend.services import vector_service
 
 router = APIRouter()
@@ -16,15 +17,16 @@ class DocumentSummarizeResponse(BaseModel):
     key_points: List[str]
 
 @router.post("/document/summarize", response_model=DocumentSummarizeResponse)
-async def summarize_document(request: DocumentSummarizeRequest):
+@limiter.limit("20/minute")
+async def summarize_document(request: Request, payload: DocumentSummarizeRequest):
     """Summarize a document or given text using the BART model."""
-    if not request.document_id and not request.text:
+    if not payload.document_id and not payload.text:
         raise HTTPException(status_code=400, detail="Either document_id or text must be provided.")
 
     # TASK 17 FIX: Fetch actual document content from vector store when document_id is provided.
-    content_to_summarize = request.text
-    if request.document_id and not request.text:
-        content_to_summarize, _ = vector_service.get_document_chunks(request.document_id)
+    content_to_summarize = payload.text
+    if payload.document_id and not payload.text:
+        content_to_summarize, _ = vector_service.get_document_chunks(payload.document_id)
     if not content_to_summarize or not content_to_summarize.strip():
         raise HTTPException(status_code=400, detail="No content available to summarize.")
 
@@ -53,15 +55,16 @@ class DocumentQnAResponse(BaseModel):
     source_chunk: Optional[str]
 
 @router.post("/document/qna", response_model=DocumentQnAResponse)
-async def document_qna(request: DocumentQnARequest):
+@limiter.limit("20/minute")
+async def document_qna(request: Request, payload: DocumentQnARequest):
     """Answer a question based on document content using the RoBERTa QnA model."""
-    if not request.document_id:
+    if not payload.document_id:
         raise HTTPException(status_code=400, detail="document_id must be provided.")
 
     # TASK 17 FIX: Fetch actual document content for QnA.
     document_content = ""
-    if request.document_id:
-        document_content, _ = vector_service.get_document_chunks(request.document_id)
+    if payload.document_id:
+        document_content, _ = vector_service.get_document_chunks(payload.document_id)
     if not document_content.strip():
         raise HTTPException(status_code=400, detail="No content found for the given document_id.")
 
@@ -70,7 +73,7 @@ async def document_qna(request: DocumentQnARequest):
         raise HTTPException(status_code=500, detail="QnA model not available.")
     
     try:
-        qna_result = qna_pipeline(question=request.question, context=document_content)
+        qna_result = qna_pipeline(question=payload.question, context=document_content)
         return DocumentQnAResponse(
             answer=qna_result["answer"],
             confidence=qna_result["score"],
@@ -83,7 +86,8 @@ class DocumentNotesResponse(BaseModel):
     notes: str # Markdown formatted notes
 
 @router.post("/document/notes", response_model=DocumentNotesResponse)
-async def generate_document_notes(document_id: str):
+@limiter.limit("20/minute")
+async def generate_document_notes(request: Request, document_id: str):
     """Generate structured notes for a document using flan-t5."""
     # TASK 19 FIX: Fetch actual document content for notes generation.
     document_content = ""
@@ -114,13 +118,14 @@ class DocumentExplainResponse(BaseModel):
     examples: List[str]
 
 @router.post("/document/explain", response_model=DocumentExplainResponse)
-async def explain_text(request: DocumentExplainRequest):
+@limiter.limit("20/minute")
+async def explain_text(request: Request, payload: DocumentExplainRequest):
     """Explain a given text at the requested level (beginner/intermediate/expert)."""
     text_generation_pipeline = HFModels.get_text_generation()
     if not text_generation_pipeline:
         raise HTTPException(status_code=500, detail="Text generation model not available.")
 
-    prompt = f"Explain the following text at a {request.level} level and provide examples:\n\nText: {request.text}\n\nExplanation and Examples:"
+    prompt = f"Explain the following text at a {payload.level} level and provide examples:\n\nText: {payload.text}\n\nExplanation and Examples:"
 
     try:
         generated_explanation = text_generation_pipeline(prompt, max_length=300, num_return_sequences=1)

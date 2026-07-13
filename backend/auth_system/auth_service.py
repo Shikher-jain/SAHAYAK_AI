@@ -16,10 +16,23 @@ from sqlalchemy.orm import Session
 from backend.auth_system.database import get_db
 from backend.auth_system.models import User
 from backend.auth_system.schemas import TokenData, UserCreate, UserUpdate
+from dotenv import load_dotenv
+import os
 
+load_dotenv()
 # --- Configuration ---
-SECRET_KEY = os.getenv("JWT_SECRET_KEY", "sahayak-super-secret-key-change-in-production")
+# JWT_SECRET_KEY MUST be set in the environment / .env file — no insecure default.
+# Generate one with: openssl rand -hex 32
+try:
+    SECRET_KEY = os.environ["JWT_SECRET_KEY"]
+except KeyError as exc:
+    raise RuntimeError(
+        "JWT_SECRET_KEY environment variable is not set. "
+        "Set it in your .env file (generate with `openssl rand -hex 32`) "
+        "before starting the app."
+    ) from exc
 ALGORITHM = "HS256"
+
 ACCESS_TOKEN_EXPIRE_MINUTES = int(os.getenv("JWT_EXPIRE_MINUTES", "1440"))  # 24h default
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/auth/login", auto_error=False)
