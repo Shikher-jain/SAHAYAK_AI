@@ -1,0 +1,14 @@
+{
+    "chat.byokUtilityModelDefault": "copilot",
+    "chat.disableAIFeatures": false,
+    "chat.agents.claude.preferAgentHost": true,
+    "github.copilot.chat.agent.autoFix": true,
+    "github.copilot.chat.preferLongContext.enabled": true,
+    "github.copilot.chat.rateLimitAutoSwitchToAuto": false,
+    "github.copilot.chat.scopeSelection": true,
+    "github.copilot.completions.chat.enabled": true,
+    "chat.sessionSync.enabled": true,
+    "editor.inlineSuggest.enabled": true,
+    // "github.copilot.enable": true,
+    "github.copilot.chat.enabled": true,
+}

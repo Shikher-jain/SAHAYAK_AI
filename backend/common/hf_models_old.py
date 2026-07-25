@@ -73,27 +73,12 @@ class Seq2SeqGenerator:
 
 
 class HFModels:
-    """Singleton class to load and manage HuggingFace models.
-
-    IMPORTANT — memory footprint: these models range from ~250MB to ~1.6GB
-    each when loaded. On low-RAM deployments (e.g. Render's free tier, 512MB
-    total), loading even one of these will OOM the process. All getters are
-    gated behind ENABLE_LOCAL_ML_MODELS (default: false). When disabled,
-    getters return None immediately and callers should fall back to a hosted
-    API (Groq/OpenAI) instead — see backend/routers/document_features.py and
-    backend/services/knowledge_graph.py for the fallback pattern.
-    Set ENABLE_LOCAL_ML_MODELS=true only in environments with enough RAM
-    (a local dev machine, or a paid hosting tier).
-    """
+    """Singleton class to load and manage HuggingFace models."""
 
     _summarizer_pipeline: Optional[Pipeline] = None
     _qna_pipeline: Optional[Pipeline] = None
     _text_generation_pipeline: Optional[Pipeline] = None
     _translation_pipeline: Optional[Pipeline] = None
-
-    @staticmethod
-    def local_models_enabled() -> bool:
-        return os.getenv("ENABLE_LOCAL_ML_MODELS", "false").strip().lower() == "true"
 
     # ------------------------------------------------------------------
     # Core models (Task 1)
@@ -102,9 +87,7 @@ class HFModels:
     @classmethod
     @lru_cache(maxsize=1)  # Ensure only one instance of the model is loaded
     def get_summarizer(cls) -> Optional[Pipeline]:
-        """Loads and returns the summarization pipeline (BART). None if disabled."""
-        if not cls.local_models_enabled():
-            return None
+        """Loads and returns the summarization pipeline (BART)."""
         if cls._summarizer_pipeline is None:
             model_name = os.getenv("HF_MODEL_SUMMARIZER", "facebook/bart-large-cnn")
             try:
@@ -118,8 +101,6 @@ class HFModels:
     @lru_cache(maxsize=1)
     def get_qna(cls) -> Optional[Pipeline]:
         """Loads and returns the extractive QnA pipeline (RoBERTa-SQuAD)."""
-        if not cls.local_models_enabled():
-            return None
         if cls._qna_pipeline is None:
             model_name = os.getenv("HF_MODEL_QNA", "deepset/roberta-base-squad2")
             try:
@@ -133,8 +114,6 @@ class HFModels:
     @lru_cache(maxsize=1)
     def get_text_generation(cls) -> Optional[Seq2SeqGenerator]:
         """Loads Flan-T5 as a seq2seq model (NOT pipeline) for reliable text generation."""
-        if not cls.local_models_enabled():
-            return None
         if cls._text_generation_pipeline is None:
             model_name = os.getenv("HF_MODEL_TEXT_GENERATION", "google/flan-t5-base")
             try:
@@ -151,8 +130,6 @@ class HFModels:
     @lru_cache(maxsize=1)
     def get_translation(cls) -> Optional[Pipeline]:
         """Loads and returns the English→ROMANCE translation pipeline (Helsinki-NLP)."""
-        if not cls.local_models_enabled():
-            return None
         if cls._translation_pipeline is None:
             model_name = os.getenv("HF_MODEL_TRANSLATION", "Helsinki-NLP/opus-mt-en-ROMANCE")
             try:
@@ -175,8 +152,6 @@ class HFModels:
     @lru_cache(maxsize=1)
     def get_sentiment(cls) -> Optional[Pipeline]:
         """Loads and returns the sentiment analysis pipeline."""
-        if not cls.local_models_enabled():
-            return None
         if cls._sentiment_pipeline is None:
             model_name = os.getenv("HF_MODEL_SENTIMENT", "distilbert-base-uncased-finetuned-sst-2-english")
             try:
@@ -190,8 +165,6 @@ class HFModels:
     @lru_cache(maxsize=1)
     def get_classification(cls) -> Optional[Pipeline]:
         """Loads and returns the text classification pipeline."""
-        if not cls.local_models_enabled():
-            return None
         if cls._classification_pipeline is None:
             model_name = os.getenv("HF_MODEL_CLASSIFICATION", "facebook/bart-large-mnli")
             try:
@@ -205,8 +178,6 @@ class HFModels:
     @lru_cache(maxsize=1)
     def get_ner(cls) -> Optional[Pipeline]:
         """Loads and returns the named entity recognition pipeline."""
-        if not cls.local_models_enabled():
-            return None
         if cls._ner_pipeline is None:
             model_name = os.getenv("HF_MODEL_NER", "dbmdz/bert-large-cased-finetuned-conll03-english")
             try:
@@ -220,8 +191,6 @@ class HFModels:
     @lru_cache(maxsize=1)
     def get_image_classification(cls) -> Optional[Pipeline]:
         """Loads and returns the image classification pipeline."""
-        if not cls.local_models_enabled():
-            return None
         if cls._image_classification_pipeline is None:
             model_name = os.getenv("HF_MODEL_IMAGE_CLASS", "google/vit-base-patch16-224")
             try:

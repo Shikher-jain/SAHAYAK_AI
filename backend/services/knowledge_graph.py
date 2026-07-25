@@ -130,10 +130,13 @@ def query_path(source: str, target: str) -> List[str]:
                 queue.append((neighbor, path + [neighbor]))
     return []
 
-
 def extract_from_text(text: str) -> Dict[str, Any]:
-    """Extract entities and relationships from text using NER (basic keyword-based)."""
-    # Use HF NER pipeline if available, else fallback
+    """Extract entities and relationships from text.
+
+    Tries, in order: local NER model (only if ENABLE_LOCAL_ML_MODELS=true) ->
+    Groq-based extraction (free-tier friendly, no local RAM cost) -> crude
+    capitalized-word heuristic (always works, lowest quality, zero dependencies).
+    """
     try:
         from backend.common.hf_models import HFModels
         ner = HFModels.get_ner()
@@ -142,14 +145,41 @@ def extract_from_text(text: str) -> Dict[str, Any]:
             entities_found = list(set(e["word"] for e in entities_raw if e["entity"].startswith("B-")))
             for entity in entities_found:
                 add_entity(entity, entity_type="named_entity")
-            # Create relationships between co-occurring entities
             for i in range(len(entities_found)):
                 for j in range(i + 1, min(i + 3, len(entities_found))):
                     add_relationship(entities_found[i], entities_found[j], "co_occurs")
             return {"entities": entities_found, "relationships": len(entities_found) * (len(entities_found) - 1) // 2}
     except Exception:
         pass
-    # Fallback: simple noun extraction
+
+    # Local NER disabled or failed — try Groq (no local RAM cost).
+    try:
+        import json
+        from backend.common.groq_client import groq_complete
+
+        raw = groq_complete(
+            system_prompt=(
+                'Extract named entities (people, organizations, places, key concepts) from the text. '
+                'Respond ONLY with valid JSON: {"entities": ["entity1", "entity2", ...]}. Max 20 entities.'
+            ),
+            user_prompt=text[:2000],
+            temperature=0.1,
+            max_tokens=300,
+        )
+        if raw:
+            parsed = json.loads(raw)
+            entities_found = [e.strip() for e in parsed.get("entities", []) if e.strip()][:20]
+            if entities_found:
+                for entity in entities_found:
+                    add_entity(entity, entity_type="named_entity")
+                for i in range(len(entities_found)):
+                    for j in range(i + 1, min(i + 3, len(entities_found))):
+                        add_relationship(entities_found[i], entities_found[j], "co_occurs")
+                return {"entities": entities_found, "relationships": len(entities_found) * (len(entities_found) - 1) // 2}
+    except Exception:
+        pass
+
+    # Final fallback: simple noun extraction (always available, no dependencies).
     words = [w.strip(".,;:!?") for w in text.split() if len(w) > 4 and w[0].isupper()]
     unique_words = list(set(words))[:20]
     for word in unique_words:

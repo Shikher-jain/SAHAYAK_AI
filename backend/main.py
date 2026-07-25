@@ -132,7 +132,7 @@ app.include_router(summarize.router, prefix="/summaries")
 app.include_router(document_features.router, prefix="/document")
 app.include_router(voice.router, prefix="/voice")
 app.include_router(local_mode.router)
-app.include_router(finetune.router)
+app.include_router(finetune.router) 
 app.include_router(pages.router)  # Static pages: /pages/*
 app.include_router(stats.router)  # Dashboard stats: /stats/*
 app.include_router(learning.router)  # Learning modes
