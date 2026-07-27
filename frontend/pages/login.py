@@ -11,7 +11,7 @@ BACKEND_URL = os.getenv("BACKEND_URL", "http://127.0.0.1:8000")
 def _call_auth(method: str, path: str, **kwargs):
     url = f"{st.session_state.get('backend_url', BACKEND_URL)}{path}"
     try:
-        resp = requests.request(method, url, timeout=30, **kwargs)
+        resp = requests.request(method, url, timeout=300, **kwargs)
         return resp
     except Exception as exc:
         return None

@@ -9,7 +9,7 @@ python-multipart
 slowapi
 
 # Core ML / NLP
-torch==2.2.2
+torch>=2.6
 transformers>=4.46,<5.0
 sentence-transformers
 
@@ -67,3 +67,10 @@ gTTS
 peft
 bitsandbytes
 accelerate
+
+
+moviepy
+Pillow
+youtube_transcript_api
+fpdf
+python-dotenv

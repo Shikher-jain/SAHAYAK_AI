@@ -16,10 +16,10 @@ from sqlalchemy.orm import Session
 from backend.auth_system.database import get_db
 from backend.auth_system.models import User
 from backend.auth_system.schemas import TokenData, UserCreate, UserUpdate
-from dotenv import load_dotenv
-import os
 
+from dotenv import load_dotenv
 load_dotenv()
+
 # --- Configuration ---
 # JWT_SECRET_KEY MUST be set in the environment / .env file — no insecure default.
 # Generate one with: openssl rand -hex 32
@@ -32,7 +32,6 @@ except KeyError as exc:
         "before starting the app."
     ) from exc
 ALGORITHM = "HS256"
-
 ACCESS_TOKEN_EXPIRE_MINUTES = int(os.getenv("JWT_EXPIRE_MINUTES", "1440"))  # 24h default
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/auth/login", auto_error=False)
@@ -95,7 +94,12 @@ def get_user_by_email(db: Session, email: str) -> Optional[User]:
 
 
 def register_user(db: Session, user_in: UserCreate) -> User:
-    """Register a new user. Raises HTTPException on duplicate username/email."""
+    """Register a new user. Raises HTTPException on duplicate username/email.
+
+    Role is ALWAYS "student" here — it is not client-controllable (UserCreate
+    has no role field). Promoting a user to teacher/admin is a separate
+    admin-only action; see admin_set_user_role() below.
+    """
     if get_user_by_username(db, user_in.username):
         raise HTTPException(status_code=409, detail="Username already taken")
     if get_user_by_email(db, user_in.email):
@@ -105,7 +109,7 @@ def register_user(db: Session, user_in: UserCreate) -> User:
         username=user_in.username,
         email=user_in.email,
         hashed_password=hash_password(user_in.password),
-        role=user_in.role,
+        role="student",
         full_name=user_in.full_name,
     )
     db.add(user)
@@ -125,7 +129,8 @@ def authenticate_user(db: Session, username: str, password: str) -> Optional[Use
 
 
 def update_user_profile(db: Session, user: User, updates: UserUpdate) -> User:
-    """Update mutable profile fields."""
+    """Update mutable profile fields. Role is NOT editable here — see
+    admin_set_user_role() for role changes (admin-only)."""
     if updates.email is not None:
         existing = get_user_by_email(db, updates.email)
         if existing and existing.id != user.id:
@@ -133,11 +138,21 @@ def update_user_profile(db: Session, user: User, updates: UserUpdate) -> User:
         user.email = updates.email
     if updates.full_name is not None:
         user.full_name = updates.full_name
-    if updates.role is not None and updates.role in {"student", "teacher", "admin"}:
-        user.role = updates.role
     db.commit()
     db.refresh(user)
     return user
+
+
+def admin_set_user_role(db: Session, target_user: User, new_role: str) -> User:
+    """Change a user's role. Caller (router) must already have verified the
+    REQUESTING user is an admin via require_admin — this function itself
+    does not re-check that, it only validates the target role value."""
+    if new_role not in {"student", "teacher", "admin"}:
+        raise HTTPException(status_code=400, detail="Invalid role")
+    target_user.role = new_role
+    db.commit()
+    db.refresh(target_user)
+    return target_user
 
 
 # --- FastAPI dependencies ---

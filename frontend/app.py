@@ -231,35 +231,63 @@ def page_upload():
     upload_type = st.radio("Source", ["File", "URL", "Raw Text"], horizontal=True)
     ingested_name = None
     ingested_doc_id = None
+
     if upload_type == "File":
-        uploaded = st.file_uploader(
-            "Drop file here",
-            type=list(k.lstrip(".") for k in INGESTION_ROUTES.keys()),
-        )
-        if uploaded and st.button("Ingest File"):
-            _, ext = os.path.splitext(uploaded.name)
-            route = INGESTION_ROUTES.get(ext.lower())
-            if route:
-                endpoint, mime_type = route
-                uploaded.seek(0)
-                files = {"file": (uploaded.name, uploaded, mime_type)}
-                ok, payload, detail = _call_backend("post", endpoint, files=files)
-                if ok:
-                    st.success(f"✅ Ingested {uploaded.name}")
-                    ingested_name = uploaded.name
-                    ingested_doc_id = None
-                    if isinstance(payload, dict):
-                        ingested_doc_id = payload.get("document_id") or payload.get("id") or uploaded.name
-                    # Show auto-tags if available
-                    tags = []
-                    if isinstance(payload, dict):
-                        for rec in (payload.get("records") or []):
-                            meta = rec.get("metadata") or {}
-                            tags.extend(meta.get("tags", []))
-                    if tags:
-                        st.markdown(f"🏷️ **Auto-tags:** {', '.join(set(tags[:10]))}")
+            uploaded_files = st.file_uploader(
+                "Drop file(s) here — select multiple to batch-upload",
+                type=list(k.lstrip(".") for k in INGESTION_ROUTES.keys()),
+                accept_multiple_files=True,
+            )
+            if uploaded_files and st.button("Ingest File(s)"):
+                if len(uploaded_files) == 1:
+                    # Single file — use the existing single-file endpoint, unchanged behavior.
+                    uploaded = uploaded_files[0]
+                    _, ext = os.path.splitext(uploaded.name)
+                    route = INGESTION_ROUTES.get(ext.lower())
+                    if route:
+                        endpoint, mime_type = route
+                        uploaded.seek(0)
+                        files = {"file": (uploaded.name, uploaded, mime_type)}
+                        ok, payload, detail = _call_backend("post", endpoint, files=files)
+                        if ok:
+                            st.success(f"✅ Ingested {uploaded.name}")
+                            ingested_name = uploaded.name
+                            ingested_doc_id = None
+                            if isinstance(payload, dict):
+                                ingested_doc_id = payload.get("document_id") or payload.get("id") or uploaded.name
+                            tags = []
+                            if isinstance(payload, dict):
+                                for rec in (payload.get("records") or []):
+                                    meta = rec.get("metadata") or {}
+                                    tags.extend(meta.get("tags", []))
+                            if tags:
+                                st.markdown(f"🏷️ **Auto-tags:** {', '.join(set(tags[:10]))}")
+                        else:
+                            st.error(f"Failed: {detail}")
                 else:
-                    st.error(f"Failed: {detail}")
+                    # Multiple files — batch endpoint, one request, mixed types allowed.
+                    files_payload = []
+                    for uploaded in uploaded_files:
+                        uploaded.seek(0)
+                        files_payload.append(("files", (uploaded.name, uploaded, uploaded.type or "application/octet-stream")))
+                    with st.spinner(f"Uploading {len(uploaded_files)} files..."):
+                        ok, payload, detail = _call_backend("post", "/ingest/batch", files=files_payload)
+                    if ok and isinstance(payload, dict):
+                        st.success(f"✅ {payload.get('succeeded', 0)}/{payload.get('total', 0)} files ingested")
+                        for r in payload.get("results", []):
+                            if r["status"] == "ok":
+                                st.markdown(f"✅ **{r['filename']}** — {r.get('chunks', 0)} chunks ({r.get('modality')})")
+                            elif r["status"] == "skipped":
+                                st.markdown(f"⏭️ **{r['filename']}** — skipped ({r.get('error')})")
+                            else:
+                                st.markdown(f"❌ **{r['filename']}** — {r.get('error')}")
+                        # Use the first successfully ingested file for the "Quick Actions" section below.
+                        first_ok = next((r for r in payload.get("results", []) if r["status"] == "ok"), None)
+                        if first_ok:
+                            ingested_name = first_ok["filename"]
+                            ingested_doc_id = first_ok["filename"]
+                    else:
+                        st.error(f"Batch upload failed: {detail}")
     elif upload_type == "URL":
         url_text = st.text_input("Paste URL")
         if url_text and st.button("Ingest URL"):

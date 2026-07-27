@@ -74,19 +74,19 @@ def contact_info():
     # MOCK DATA
     """Return Sahayak AI contact information and social media handles."""
     return {
-        "email": "hello@sahayak.ai",
-        "support_email": "support@sahayak.ai",
+        "email": "shikherjain786@gmail.com",
+        "support_email": "shikherjain786@gmail.com",
         "social_media": {
-            "twitter": "https://twitter.com/sahayak_ai",
-            "linkedin": "https://linkedin.com/company/sahayak-ai",
-            "github": "https://github.com/sahayak-ai",
-            "instagram": "https://instagram.com/sahayak_ai",
-            "discord": "https://discord.gg/sahayak-ai",
-            "youtube": "https://youtube.com/@sahayak-ai",
+            "X / twitter": "https://x.com/shikherjain786",
+            "linkedin": "https://www.linkedin.com/in/shikher-jain-0bb8a8259/",
+            "github": "https://github.com/Shikher-jain/SAHAYAK_AI",
+            "instagram": "https://www.instagram.com/shikher.09",
+            "discord": "https://discord.gg/WJsY4srYk",
+            "youtube": "https://www.youtube.com/@shikherjain0906",
         },
         "office": {
-            "address": "Sahayak AI HQ, India",
-            "phone": "+91-XXXXX-XXXXX",
+            "address": "Sahayak AI (Shikher Jain), India",
+            "phone": "+91-74520-17544",
         },
         "hours": "Monday - Friday, 9:00 AM - 6:00 PM IST",
     }

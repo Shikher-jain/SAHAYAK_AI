@@ -1,0 +1,58 @@
+# Render Blueprint — deploys the Sahayak AI backend on Render's free tier.
+#
+# Usage: push this repo to GitHub, then in Render: New -> Blueprint -> select
+# this repo. Render reads this file and provisions the service automatically.
+#
+# IMPORTANT — env vars marked `sync: false` must be set manually in the
+# Render dashboard after the first deploy (secrets aren't committed to git):
+#   GROQ_API_KEY            — https://console.groq.com (free tier)
+#   HUGGINGFACEHUB_API_TOKEN — https://huggingface.co/settings/tokens (free tier)
+#   QDRANT_URL               — https://cloud.qdrant.io free cluster URL (optional;
+#                              falls back to local FAISS if unset/unreachable)
+#   QDRANT_API_KEY           — from the same Qdrant Cloud cluster
+#   JWT_SECRET_KEY            — generate with: openssl rand -hex 32
+#   AUTH_DATABASE_URL         — free Postgres from Neon (optional; falls
+#                              back to SQLite, which will NOT persist across
+#                              redeploys on Render's free tier)
+#   ALLOWED_ORIGINS           — your deployed frontend URL, once you have one
+#
+# NOTE ON THE FREE TIER: Render's free web services spin down after 15
+# minutes of inactivity and cold-start on the next request (expect the
+# first request after idle to take noticeably longer). This is a Render
+# platform limitation, not something this app can work around.
+
+services:
+  - type: web
+    name: sahayak-backend
+    runtime: docker
+    dockerfilePath: ./backend/Dockerfile
+    dockerContext: .
+    plan: free
+    healthCheckPath: /health
+    envVars:
+      - key: ENABLE_LOCAL_ML_MODELS
+        value: "false"   # keep false on free tier — see backend/common/hf_models.py
+      - key: GROQ_MODEL
+        value: "llama-3.1-8b-instant"
+      - key: EMBEDDING_MODEL
+        value: "all-MiniLM-L6-v2"
+      - key: QDRANT_COLLECTION
+        value: "sahayak_ai_vectors"
+      - key: QDRANT_VECTOR_DIM
+        value: "384"
+      - key: JWT_EXPIRE_MINUTES
+        value: "1440"
+      - key: GROQ_API_KEY
+        sync: false
+      - key: HUGGINGFACEHUB_API_TOKEN
+        sync: false
+      - key: QDRANT_URL
+        sync: false
+      - key: QDRANT_API_KEY
+        sync: false
+      - key: JWT_SECRET_KEY
+        sync: false
+      - key: AUTH_DATABASE_URL
+        sync: false
+      - key: ALLOWED_ORIGINS
+        sync: false

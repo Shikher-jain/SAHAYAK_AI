@@ -14,6 +14,7 @@ from fastapi import APIRouter, HTTPException, Depends, Request
 from pydantic import BaseModel
 
 from backend.common.groq_client import groq_complete
+from backend.common.hf_inference_api import hf_api_summarize, hf_api_qna, hf_api_generate
 from backend.common.hf_models import HFModels
 from backend.common.rate_limit import limiter
 from backend.services import vector_service
@@ -60,18 +61,23 @@ async def summarize_document(request: Request, payload: DocumentSummarizeRequest
                 key_points=[p.strip() for p in parsed.get("key_points", []) if p.strip()],
             )
         except (json.JSONDecodeError, AttributeError):
-            # Groq answered but not in the requested JSON shape — use the raw text
-            # as the summary rather than discarding a perfectly usable answer.
             logger.warning("Groq summarize response wasn't valid JSON; using raw text as summary.")
             return DocumentSummarizeResponse(summary=raw.strip(), key_points=[])
+
+    # --- Try HF Inference API next (hosted, no local RAM/disk cost) ---
+    api_summary = hf_api_summarize(content_to_summarize)
+    if api_summary:
+        key_points = [s.strip() for s in api_summary.split(".") if s.strip()]
+        return DocumentSummarizeResponse(summary=api_summary, key_points=key_points)
 
     # --- Fall back to local model only if explicitly enabled ---
     summarizer_pipeline = HFModels.get_summarizer()
     if not summarizer_pipeline:
         raise HTTPException(
             status_code=503,
-            detail="Summarization unavailable: Groq call failed and no local model is enabled. "
-                   "Check GROQ_API_KEY, or set ENABLE_LOCAL_ML_MODELS=true on a machine with enough RAM.",
+            detail="Summarization unavailable: Groq and HF Inference API both failed, and no local "
+                   "model is enabled. Check GROQ_API_KEY/HUGGINGFACEHUB_API_TOKEN, or set "
+                   "ENABLE_LOCAL_ML_MODELS=true on a machine with enough RAM.",
         )
     try:
         summary_result = summarizer_pipeline(content_to_summarize, max_length=150, min_length=50, do_sample=False)
@@ -112,14 +118,19 @@ async def document_qna(request: Request, payload: DocumentQnARequest):
     user_prompt = f"Context:\n{document_content[:8000]}\n\nQuestion: {payload.question}"
     answer = groq_complete(system_prompt, user_prompt, temperature=0.1, max_tokens=400)
     if answer:
-        # NOTE: unlike the extractive RoBERTa-QnA model this replaces, Groq doesn't
-        # return a real confidence score — it's a generative answer, not a span
-        # extracted with a probability. We report a fixed indicative value rather
-        # than fabricate false precision; treat this field as approximate.
         not_found = "not in the context" in answer.lower() or "doesn't contain" in answer.lower()
         return DocumentQnAResponse(
             answer=answer,
             confidence=0.3 if not_found else 0.8,
+            source_chunk=document_content[:500],
+        )
+
+    # --- Try HF Inference API next (hosted, no local RAM/disk cost) ---
+    api_result = hf_api_qna(payload.question, document_content)
+    if api_result:
+        return DocumentQnAResponse(
+            answer=api_result["answer"],
+            confidence=api_result["score"],
             source_chunk=document_content[:500],
         )
 
@@ -128,8 +139,9 @@ async def document_qna(request: Request, payload: DocumentQnARequest):
     if not qna_pipeline:
         raise HTTPException(
             status_code=503,
-            detail="QnA unavailable: Groq call failed and no local model is enabled. "
-                   "Check GROQ_API_KEY, or set ENABLE_LOCAL_ML_MODELS=true on a machine with enough RAM.",
+            detail="QnA unavailable: Groq and HF Inference API both failed, and no local model is "
+                   "enabled. Check GROQ_API_KEY/HUGGINGFACEHUB_API_TOKEN, or set "
+                   "ENABLE_LOCAL_ML_MODELS=true on a machine with enough RAM.",
         )
     try:
         qna_result = qna_pipeline(question=payload.question, context=document_content)
@@ -162,12 +174,22 @@ async def generate_document_notes(request: Request, document_id: str):
     if notes:
         return DocumentNotesResponse(notes=notes)
 
+    # --- Try HF Inference API next (hosted, no local RAM/disk cost) ---
+    api_notes = hf_api_generate(
+        f"Generate structured notes with a Title, Key Concepts, Summary, and Important Points, "
+        f"formatted in markdown, for the following document:\n\n{document_content[:4000]}",
+        max_new_tokens=500,
+    )
+    if api_notes:
+        return DocumentNotesResponse(notes=api_notes)
+
     text_generation_pipeline = HFModels.get_text_generation()
     if not text_generation_pipeline:
         raise HTTPException(
             status_code=503,
-            detail="Note generation unavailable: Groq call failed and no local model is enabled. "
-                   "Check GROQ_API_KEY, or set ENABLE_LOCAL_ML_MODELS=true on a machine with enough RAM.",
+            detail="Note generation unavailable: Groq and HF Inference API both failed, and no local "
+                   "model is enabled. Check GROQ_API_KEY/HUGGINGFACEHUB_API_TOKEN, or set "
+                   "ENABLE_LOCAL_ML_MODELS=true on a machine with enough RAM.",
         )
     try:
         prompt = (
@@ -211,12 +233,27 @@ async def explain_text(request: Request, payload: DocumentExplainRequest):
             logger.warning("Groq explain response wasn't valid JSON; using raw text as explanation.")
             return DocumentExplainResponse(explanation=raw.strip(), examples=[])
 
+    # --- Try HF Inference API next (hosted, no local RAM/disk cost) ---
+    api_explanation = hf_api_generate(
+        f"Explain the following text at a {payload.level} level and provide examples:\n\n{payload.text[:4000]}",
+        max_new_tokens=350,
+    )
+    if api_explanation:
+        examples = []
+        explanation_text = api_explanation
+        if "Examples:" in api_explanation:
+            parts = api_explanation.split("Examples:", 1)
+            explanation_text = parts[0].strip()
+            examples = [e.strip() for e in parts[1].split("\n") if e.strip()]
+        return DocumentExplainResponse(explanation=explanation_text, examples=examples)
+
     text_generation_pipeline = HFModels.get_text_generation()
     if not text_generation_pipeline:
         raise HTTPException(
             status_code=503,
-            detail="Explanation unavailable: Groq call failed and no local model is enabled. "
-                   "Check GROQ_API_KEY, or set ENABLE_LOCAL_ML_MODELS=true on a machine with enough RAM.",
+            detail="Explanation unavailable: Groq and HF Inference API both failed, and no local "
+                   "model is enabled. Check GROQ_API_KEY/HUGGINGFACEHUB_API_TOKEN, or set "
+                   "ENABLE_LOCAL_ML_MODELS=true on a machine with enough RAM.",
         )
     try:
         prompt = f"Explain the following text at a {payload.level} level and provide examples:\n\nText: {payload.text}\n\nExplanation and Examples:"

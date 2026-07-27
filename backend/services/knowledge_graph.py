@@ -60,7 +60,6 @@ def add_entity(name: str, entity_type: str = "concept", description: str = "") -
 
 
 def add_relationship(source: str, target: str, relation: str = "related_to", weight: float = 1.0) -> int:
-    # Ensure both entities exist
     add_entity(source)
     add_entity(target)
     conn = _get_conn()
@@ -92,7 +91,6 @@ def get_entity(name: str) -> Optional[Dict[str, Any]]:
     if not entity:
         conn.close()
         return None
-    # Get all relationships for this entity
     rels = conn.execute(
         "SELECT * FROM relationships WHERE source = ? OR target = ?", (name, name)
     ).fetchall()
@@ -110,12 +108,10 @@ def query_path(source: str, target: str) -> List[str]:
     conn = _get_conn()
     edges = conn.execute("SELECT source, target FROM relationships").fetchall()
     conn.close()
-    # Build adjacency list
     adj: Dict[str, List[str]] = {}
     for e in edges:
         adj.setdefault(e["source"], []).append(e["target"])
         adj.setdefault(e["target"], []).append(e["source"])
-    # BFS
     visited = set()
     queue = [(source, [source])]
     while queue:
@@ -130,12 +126,14 @@ def query_path(source: str, target: str) -> List[str]:
                 queue.append((neighbor, path + [neighbor]))
     return []
 
+
 def extract_from_text(text: str) -> Dict[str, Any]:
     """Extract entities and relationships from text.
 
     Tries, in order: local NER model (only if ENABLE_LOCAL_ML_MODELS=true) ->
-    Groq-based extraction (free-tier friendly, no local RAM cost) -> crude
-    capitalized-word heuristic (always works, lowest quality, zero dependencies).
+    HF Inference API (task-specific model, no local RAM cost) -> Groq
+    (general LLM, no local RAM cost) -> crude capitalized-word heuristic
+    (always works, lowest quality, zero dependencies).
     """
     try:
         from backend.common.hf_models import HFModels
@@ -152,7 +150,21 @@ def extract_from_text(text: str) -> Dict[str, Any]:
     except Exception:
         pass
 
-    # Local NER disabled or failed — try Groq (no local RAM cost).
+    # Local NER disabled or failed — try HF Inference API (task-specific model, no local RAM cost).
+    try:
+        from backend.common.hf_inference_api import hf_api_ner
+        entities_found = hf_api_ner(text)
+        if entities_found:
+            for entity in entities_found:
+                add_entity(entity, entity_type="named_entity")
+            for i in range(len(entities_found)):
+                for j in range(i + 1, min(i + 3, len(entities_found))):
+                    add_relationship(entities_found[i], entities_found[j], "co_occurs")
+            return {"entities": entities_found, "relationships": len(entities_found) * (len(entities_found) - 1) // 2}
+    except Exception:
+        pass
+
+    # HF API unavailable/failed — try Groq (general LLM, no local RAM cost).
     try:
         import json
         from backend.common.groq_client import groq_complete

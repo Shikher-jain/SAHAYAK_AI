@@ -22,7 +22,7 @@ class QdrantStore:
     def __init__(self) -> None:
         self.url = os.getenv("QDRANT_URL", "http://localhost:6333")
         self.api_key = os.getenv("QDRANT_API_KEY")
-        self.collection_name = os.getenv("QDRANT_COLLECTION", "sahayak_ai_vectors")
+        self.collection_name = os.getenv("QDRANT_COLLECTION", "sahayak_ai")
         self.vector_dim = int(os.getenv("QDRANT_VECTOR_DIM", "384"))
         self._client: QdrantClient | None = None
         self._available = False

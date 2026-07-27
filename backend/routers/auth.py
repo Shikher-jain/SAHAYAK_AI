@@ -11,6 +11,7 @@ from backend.common.rate_limit import limiter
 
 from backend.auth_system.auth_service import (
     ACCESS_TOKEN_EXPIRE_MINUTES,
+    admin_set_user_role,
     authenticate_user,
     create_access_token,
     get_current_user,
@@ -21,7 +22,7 @@ from backend.auth_system.auth_service import (
 )
 from backend.auth_system.database import get_db
 from backend.auth_system.models import User
-from backend.auth_system.schemas import Token, UserCreate, UserLogin, UserProfile, UserUpdate
+from backend.auth_system.schemas import AdminRoleUpdate, Token, UserCreate, UserLogin, UserProfile, UserUpdate
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
@@ -98,3 +99,19 @@ def auth_stats(db: Session = Depends(get_db), _admin: User = Depends(require_adm
         "teachers": teachers,
         "admins": admins,
     }
+
+
+@router.patch("/users/{user_id}/role", response_model=UserProfile)
+def set_user_role(
+    user_id: int,
+    payload: AdminRoleUpdate,
+    db: Session = Depends(get_db),
+    _admin: User = Depends(require_admin),
+):
+    """Admin-only: change a user's role. This is the ONLY way to promote a
+    user to teacher/admin — role can no longer be set via /register or
+    /profile (that was a self-service-admin vulnerability, now closed)."""
+    target_user = db.query(User).filter(User.id == user_id).first()
+    if not target_user:
+        raise HTTPException(status_code=404, detail="User not found")
+    return admin_set_user_role(db, target_user, payload.role)

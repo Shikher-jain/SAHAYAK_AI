@@ -11,4 +11,5 @@
     "editor.inlineSuggest.enabled": true,
     // "github.copilot.enable": true,
     "github.copilot.chat.enabled": true,
+    "terminal.integrated.shellIntegration.environmentReporting": true,
 }

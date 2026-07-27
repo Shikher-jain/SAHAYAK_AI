@@ -54,7 +54,7 @@ def fetch_url_text(url: str) -> str:
     safe_url = validate_public_url(url)
     response = requests.get(
         safe_url,
-        timeout=30,
+        timeout=300,
         headers={"User-Agent": "SahayakAI/1.0 (+https://example.local)"},
         allow_redirects=True,
     )

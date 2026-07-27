@@ -4,6 +4,12 @@ import time
 from pathlib import Path
 
 from dotenv import load_dotenv
+
+BASE_DIR = Path(__file__).resolve().parents[1]
+# load_dotenv(BASE_DIR / ".env")
+load_dotenv(BASE_DIR / ".env", override=True)
+
+
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
@@ -18,10 +24,6 @@ from backend.routers import voice # Import the voice router separately
 from backend.routers import learning, quiz, courses, help_bot, counselor, books, stories, commerce, roadmaps, knowledge, progress, sync
 from backend.utils.file_utils import cleanup_tmp_dir
 from backend.auth_system.database import init_db as init_auth_db
-
-BASE_DIR = Path(__file__).resolve().parents[1]
-load_dotenv(BASE_DIR / ".env")
-
 configure_logging()
 logger = logging.getLogger(__name__)
 

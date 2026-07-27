@@ -13,8 +13,11 @@ class UserCreate(BaseModel):
     username: str = Field(..., min_length=3, max_length=64)
     email: str = Field(..., max_length=128)
     password: str = Field(..., min_length=6, max_length=128)
-    role: str = Field(default="student", pattern="^(student|teacher|admin)$")
     full_name: str = Field(default="", max_length=128)
+    # NOTE: role intentionally NOT accepted here. All new accounts are
+    # "student" by default (enforced server-side in register_user()).
+    # Promoting a user to teacher/admin is an admin-only action —
+    # see PATCH /auth/users/{user_id}/role.
 
 
 class UserLogin(BaseModel):
@@ -25,7 +28,11 @@ class UserLogin(BaseModel):
 class UserUpdate(BaseModel):
     email: Optional[str] = None
     full_name: Optional[str] = None
-    role: Optional[str] = None
+    # NOTE: role intentionally NOT accepted here — see UserCreate note above.
+
+
+class AdminRoleUpdate(BaseModel):
+    role: str = Field(..., pattern="^(student|teacher|admin)$")
 
 
 # --- Response schemas ---
