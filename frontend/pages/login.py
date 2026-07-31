@@ -2,8 +2,16 @@
 from __future__ import annotations
 
 import os
+from pathlib import Path
+
 import requests
 import streamlit as st
+from dotenv import load_dotenv
+
+# Frontend runs as a separate process from the backend — it needs its own
+# load_dotenv() call, the backend's doesn't reach here.
+_ROOT_DIR = Path(__file__).resolve().parents[2]  # frontend/pages/ -> project root
+load_dotenv(_ROOT_DIR / ".env", override=True)
 
 BACKEND_URL = os.getenv("BACKEND_URL", "http://127.0.0.1:8000")
 
@@ -14,8 +22,8 @@ def _call_auth(method: str, path: str, **kwargs):
         resp = requests.request(method, url, timeout=300, **kwargs)
         return resp
     except Exception as exc:
+        st.error(f"DEBUG — connection error: {type(exc).__name__}: {exc}")
         return None
-
 
 def show_auth_page():
     """Display login/register forms."""

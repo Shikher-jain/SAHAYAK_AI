@@ -4,10 +4,16 @@ from __future__ import annotations
 import json
 import os
 import uuid
+from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 import requests
 import streamlit as st
+from dotenv import load_dotenv
+
+# Same reasoning as login.py — this is a separate process from the backend.
+_ROOT_DIR = Path(__file__).resolve().parents[1]  # frontend/ -> project root
+load_dotenv(_ROOT_DIR / ".env", override=True)
 
 # --- Configuration ---
 PAGE_TITLE = "Sahayak - AI Learning Platform"

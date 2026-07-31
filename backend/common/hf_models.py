@@ -260,3 +260,4 @@ if __name__ == "__main__":
         print(f"\nGenerated Text: {generated_text[0]['generated_text']}")
     else:
         print("Text generation model not available.")
+        
