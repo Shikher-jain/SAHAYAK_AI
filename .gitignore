@@ -17,7 +17,7 @@ venv/
 .env
 *.db
 *.zip
-.ps1
+*.ps1
 *.db
 *.db-shm
 *.db-wal
