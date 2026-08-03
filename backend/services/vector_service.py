@@ -303,7 +303,9 @@ def rag_answer(
     english_query = translate_to_english(query, query_lang)
     # TASK 1: rewrite query before embedding/retrieval.
     rewritten_query = rewrite_query(english_query)
-    hits = search_vectors(rewritten_query, top_k=top_k, target=target)
+    from backend.rag.retriever import retrieve
+    hits = retrieve(rewritten_query, top_k=top_k, target=target)
+    # hits = search_vectors(rewritten_query, top_k=top_k, target=target)
     context = "\n\n".join(hit.get("content", "") for hit in hits if hit.get("content"))
     sanitized_context = _sanitize_output(context)
     sanitized_query = _sanitize_output(english_query)

@@ -26,7 +26,7 @@ INGESTION_ROUTES: Dict[str, Tuple[str, str]] = {
     ".png": ("/ingest/image", "image/png"),
     ".jpg": ("/ingest/image", "image/jpeg"),
     ".jpeg": ("/ingest/image", "image/jpeg"),
-    ".wav": ("/ingest/audio", "audio/wav"),
+    ".wav":  ("/ingest/audio", "audio/wav"),
     ".mp3": ("/ingest/audio", "audio/mpeg"),
     ".mp4": ("/ingest/video", "video/mp4"),
     ".mov": ("/ingest/video", "video/quicktime"),
@@ -85,10 +85,8 @@ def _init_state():
 def _get_api_key() -> str:
     return st.session_state.get("api_key") or ENV_API_KEY
 
-
 def _get_backend_url() -> str:
     return st.session_state.get("backend_url", BACKEND_URL)
-
 
 def _get_auth_headers() -> Dict[str, str]:
     headers: Dict[str, str] = {}
@@ -121,14 +119,12 @@ def _call_backend(method: str, path: str, **kwargs) -> Tuple[bool, Optional[Dict
         payload = {"raw": resp.text}
     return True, payload, "ok"
 
-
 def _ui(key: str) -> str:
     lang = st.session_state.get("language", "en")
     return _UI_LABELS.get(lang, _UI_LABELS["en"]).get(key, _UI_LABELS["en"].get(key, key))
 
-
 # --- Theme system ---
-
+ 
 _LIGHT_THEME_CSS = """
 <style>
 .stApp {

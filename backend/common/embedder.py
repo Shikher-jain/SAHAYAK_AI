@@ -22,15 +22,35 @@ _MODEL_NAME: str | None = None
 _DEFAULT_MODEL = "all-MiniLM-L6-v2"
 
 
+# def get_model() -> SentenceTransformer:
+#     """Return the shared SentenceTransformer instance (loads on first use)."""
+#     global _MODEL, _MODEL_NAME
+#     model_name = os.getenv("EMBEDDING_MODEL", _DEFAULT_MODEL).strip() or _DEFAULT_MODEL
+#     if _MODEL is None or _MODEL_NAME != model_name:
+#         _MODEL = SentenceTransformer(model_name)
+#         _MODEL_NAME = model_name
+#     return _MODEL
+
 def get_model() -> SentenceTransformer:
-    """Return the shared SentenceTransformer instance (loads on first use)."""
+    """Return the shared SentenceTransformer instance (loads on first use).
+
+    device="cpu" and low_cpu_mem_usage=False are explicit here because
+    having `accelerate` installed (added for the LoRA fine-tuning pipeline)
+    changes transformers' default loading path to use meta-tensor lazy
+    initialization, which can fail on CPU-only setups with
+    "Cannot copy out of meta tensor; no data!" — forcing full weight
+    materialization avoids that path entirely.
+    """
     global _MODEL, _MODEL_NAME
     model_name = os.getenv("EMBEDDING_MODEL", _DEFAULT_MODEL).strip() or _DEFAULT_MODEL
     if _MODEL is None or _MODEL_NAME != model_name:
-        _MODEL = SentenceTransformer(model_name)
+        _MODEL = SentenceTransformer(
+            model_name,
+            device="cpu",
+            model_kwargs={"low_cpu_mem_usage": False},
+        )
         _MODEL_NAME = model_name
     return _MODEL
-
 
 def _normalize_vectors(vectors: np.ndarray) -> np.ndarray:
     """L2-normalize vectors in-place semantics; zero vectors are left unchanged."""
