@@ -5,12 +5,12 @@ fastapi
 uvicorn[standard]
 python-dotenv
 pydantic
-python-multipart
 slowapi
+python-multipart
 
 # Core ML / NLP
-torch>=2.6
-transformers>=4.46,<5.0
+# torch>=2.6
+# transformers>=4.46,<5.0
 sentence-transformers
 
 # RAG + LLM
