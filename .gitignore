@@ -1,7 +1,5 @@
 .env
 .venv/
-__pycache__/
-__pycache__/
 *.pyc
 venv/
 # Added by code-review-graph
@@ -11,6 +9,7 @@ venv/
 *.mp3
 *.wav
 __pycache__/
+*/__pycache__/
 .pytest_cache/
 .qoder/
 venv/
