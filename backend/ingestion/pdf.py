@@ -18,32 +18,98 @@ NOISE_PATTERNS = [
     re.compile(r"^\s*all rights reserved.*$", re.IGNORECASE),
 ]
 
+# Below this many characters, a page's text-layer extraction is treated as
+# "failed" (rather than "genuinely a near-empty page") and the fallback
+# chain kicks in. 20 is generous enough to not misfire on short pages like
+# a title page, while still catching pages where extraction returned only
+# a stray character or two.
+MIN_MEANINGFUL_CHARS = 20
+
 
 def extract_pdf_text(pdf_path: Path | str) -> str:
-    try:
-        import pdfplumber
-    except Exception as exc:
-        raise RuntimeError("pdfplumber is unavailable. Install `pdfplumber` to enable PDF ingestion.") from exc
-
-    path = Path(pdf_path)
-    with pdfplumber.open(path) as pdf:
-        pages = _extract_pages(pdf)
-    return _clean_document_text(pages)
+    payload = Path(pdf_path).read_bytes()
+    return extract_pdf_text_from_bytes(payload)
 
 
 def extract_pdf_text_from_bytes(payload: bytes) -> str:
+    pages = _extract_pages(payload)
+    return _clean_document_text(pages)
+
+
+def _extract_pages(payload: bytes) -> list[str]:
+    """Extract text per page with automatic fallback: pdfplumber -> PyMuPDF
+    -> OCR. This means a single PDF can have some pages with a normal text
+    layer and other pages that are scanned images, and every page still
+    gets text — the caller (and the end user) never needs to know or
+    specify which pages are which."""
     try:
         import pdfplumber
     except Exception as exc:
         raise RuntimeError("pdfplumber is unavailable. Install `pdfplumber` to enable PDF ingestion.") from exc
 
-    with pdfplumber.open(BytesIO(payload)) as pdf:
-        pages = _extract_pages(pdf)
-    return _clean_document_text(pages)
+    fitz_doc = _open_fitz(payload)  # None if PyMuPDF isn't installed/usable
+    try:
+        pages_text: list[str] = []
+        with pdfplumber.open(BytesIO(payload)) as pdf:
+            for i, page in enumerate(pdf.pages):
+                text = (page.extract_text() or "").strip()
+                if len(text) < MIN_MEANINGFUL_CHARS:
+                    fallback_text = _fallback_page_text(fitz_doc, i)
+                    if fallback_text:
+                        text = fallback_text
+                pages_text.append(text)
+        return pages_text
+    finally:
+        if fitz_doc is not None:
+            fitz_doc.close()
 
 
-def _extract_pages(pdf) -> list[str]:
-    return [page.extract_text() or "" for page in pdf.pages]
+def _open_fitz(payload: bytes):
+    """Open the PDF with PyMuPDF for the fallback path. Returns None (not
+    an exception) if PyMuPDF is unavailable or the file can't be opened —
+    callers treat that as "no fallback available" and keep whatever
+    pdfplumber returned, even if empty."""
+    try:
+        import fitz  # PyMuPDF
+    except Exception:
+        return None
+    try:
+        return fitz.open(stream=payload, filetype="pdf")
+    except Exception:
+        return None
+
+
+def _fallback_page_text(fitz_doc, page_index: int) -> str:
+    """Tier 2: PyMuPDF's own text extraction (handles some embedded/subset
+    fonts that pdfplumber occasionally fails on, even for genuinely
+    text-based PDFs). Tier 3: OCR the rendered page image (handles actually
+    scanned/image-only pages)."""
+    if fitz_doc is None or page_index >= len(fitz_doc):
+        return ""
+    page = fitz_doc[page_index]
+
+    text = (page.get_text() or "").strip()
+    if len(text) >= MIN_MEANINGFUL_CHARS:
+        return text
+
+    return _ocr_page(page)
+
+
+def _ocr_page(page) -> str:
+    try:
+        from backend.ingestion.image import _image_to_string
+        from PIL import Image
+    except Exception:
+        return ""
+    try:
+        # 200 DPI is a reasonable balance of OCR accuracy vs. speed/memory
+        # for typical document pages — higher helps small text, but costs
+        # more time per page.
+        pix = page.get_pixmap(dpi=200)
+        image = Image.open(BytesIO(pix.tobytes("png")))
+        return _image_to_string(image)
+    except Exception:
+        return ""
 
 
 def _clean_document_text(pages: list[str]) -> str:

@@ -20,15 +20,18 @@ from __future__ import annotations
 
 import os
 from functools import lru_cache
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, Dict, List, Optional, TYPE_CHECKING, Union
 
-import torch
-from transformers import (
-    pipeline,
-    Pipeline,
-    AutoTokenizer,
-    AutoModelForSeq2SeqLM,
-)
+if TYPE_CHECKING:
+    # Only imported for type checkers — never at runtime. This keeps
+    # torch/transformers OUT of the import chain entirely when
+    # ENABLE_LOCAL_ML_MODELS=false (the default), which matters a lot on
+    # low-RAM hosts: importing torch alone costs ~200-300MB before any
+    # model is even loaded. On Render's 512MB free tier, that import cost
+    # alone (combined with FastAPI + sentence-transformers + everything
+    # else) was enough to hit the memory limit at startup, before a single
+    # request came in.
+    from transformers import Pipeline
 
 
 # ---------------------------------------------------------------------------
@@ -53,6 +56,8 @@ class Seq2SeqGenerator:
         **kwargs: Any,
     ) -> List[Dict[str, str]]:
         """Generate text. Returns list of dicts with 'generated_text' key (pipeline-compatible)."""
+        import torch  # lazy import — only reached when local models are enabled
+
         inputs = self._tokenizer(text, return_tensors="pt", truncation=True, max_length=512)
         # Move to same device as model
         inputs = {k: v.to(self._model.device) for k, v in inputs.items()}
@@ -86,10 +91,10 @@ class HFModels:
     (a local dev machine, or a paid hosting tier).
     """
 
-    _summarizer_pipeline: Optional[Pipeline] = None
-    _qna_pipeline: Optional[Pipeline] = None
-    _text_generation_pipeline: Optional[Pipeline] = None
-    _translation_pipeline: Optional[Pipeline] = None
+    _summarizer_pipeline: Optional["Pipeline"] = None
+    _qna_pipeline: Optional["Pipeline"] = None
+    _text_generation_pipeline: Optional["Pipeline"] = None
+    _translation_pipeline: Optional["Pipeline"] = None
 
     @staticmethod
     def local_models_enabled() -> bool:
@@ -101,10 +106,11 @@ class HFModels:
 
     @classmethod
     @lru_cache(maxsize=1)  # Ensure only one instance of the model is loaded
-    def get_summarizer(cls) -> Optional[Pipeline]:
+    def get_summarizer(cls) -> Optional["Pipeline"]:
         """Loads and returns the summarization pipeline (BART). None if disabled."""
         if not cls.local_models_enabled():
             return None
+        from transformers import pipeline  # lazy import
         if cls._summarizer_pipeline is None:
             model_name = os.getenv("HF_MODEL_SUMMARIZER", "facebook/bart-large-cnn")
             try:
@@ -116,10 +122,11 @@ class HFModels:
 
     @classmethod
     @lru_cache(maxsize=1)
-    def get_qna(cls) -> Optional[Pipeline]:
+    def get_qna(cls) -> Optional["Pipeline"]:
         """Loads and returns the extractive QnA pipeline (RoBERTa-SQuAD)."""
         if not cls.local_models_enabled():
             return None
+        from transformers import pipeline  # lazy import
         if cls._qna_pipeline is None:
             model_name = os.getenv("HF_MODEL_QNA", "deepset/roberta-base-squad2")
             try:
@@ -131,10 +138,11 @@ class HFModels:
 
     @classmethod
     @lru_cache(maxsize=1)
-    def get_text_generation(cls) -> Optional[Seq2SeqGenerator]:
+    def get_text_generation(cls) -> Optional["Seq2SeqGenerator"]:
         """Loads Flan-T5 as a seq2seq model (NOT pipeline) for reliable text generation."""
         if not cls.local_models_enabled():
             return None
+        from transformers import AutoTokenizer, AutoModelForSeq2SeqLM  # lazy import
         if cls._text_generation_pipeline is None:
             model_name = os.getenv("HF_MODEL_TEXT_GENERATION", "google/flan-t5-base")
             try:
@@ -149,10 +157,11 @@ class HFModels:
 
     @classmethod
     @lru_cache(maxsize=1)
-    def get_translation(cls) -> Optional[Pipeline]:
+    def get_translation(cls) -> Optional["Pipeline"]:
         """Loads and returns the English→ROMANCE translation pipeline (Helsinki-NLP)."""
         if not cls.local_models_enabled():
             return None
+        from transformers import pipeline  # lazy import
         if cls._translation_pipeline is None:
             model_name = os.getenv("HF_MODEL_TRANSLATION", "Helsinki-NLP/opus-mt-en-ROMANCE")
             try:
@@ -166,17 +175,18 @@ class HFModels:
     # Extended models (additional NLP capabilities)
     # ------------------------------------------------------------------
 
-    _sentiment_pipeline: Optional[Pipeline] = None
-    _classification_pipeline: Optional[Pipeline] = None
-    _ner_pipeline: Optional[Pipeline] = None
-    _image_classification_pipeline: Optional[Pipeline] = None
+    _sentiment_pipeline: Optional["Pipeline"] = None
+    _classification_pipeline: Optional["Pipeline"] = None
+    _ner_pipeline: Optional["Pipeline"] = None
+    _image_classification_pipeline: Optional["Pipeline"] = None
 
     @classmethod
     @lru_cache(maxsize=1)
-    def get_sentiment(cls) -> Optional[Pipeline]:
+    def get_sentiment(cls) -> Optional["Pipeline"]:
         """Loads and returns the sentiment analysis pipeline."""
         if not cls.local_models_enabled():
             return None
+        from transformers import pipeline  # lazy import
         if cls._sentiment_pipeline is None:
             model_name = os.getenv("HF_MODEL_SENTIMENT", "distilbert-base-uncased-finetuned-sst-2-english")
             try:
@@ -188,10 +198,11 @@ class HFModels:
 
     @classmethod
     @lru_cache(maxsize=1)
-    def get_classification(cls) -> Optional[Pipeline]:
+    def get_classification(cls) -> Optional["Pipeline"]:
         """Loads and returns the text classification pipeline."""
         if not cls.local_models_enabled():
             return None
+        from transformers import pipeline  # lazy import
         if cls._classification_pipeline is None:
             model_name = os.getenv("HF_MODEL_CLASSIFICATION", "facebook/bart-large-mnli")
             try:
@@ -203,10 +214,11 @@ class HFModels:
 
     @classmethod
     @lru_cache(maxsize=1)
-    def get_ner(cls) -> Optional[Pipeline]:
+    def get_ner(cls) -> Optional["Pipeline"]:
         """Loads and returns the named entity recognition pipeline."""
         if not cls.local_models_enabled():
             return None
+        from transformers import pipeline  # lazy import
         if cls._ner_pipeline is None:
             model_name = os.getenv("HF_MODEL_NER", "dbmdz/bert-large-cased-finetuned-conll03-english")
             try:
@@ -218,10 +230,11 @@ class HFModels:
 
     @classmethod
     @lru_cache(maxsize=1)
-    def get_image_classification(cls) -> Optional[Pipeline]:
+    def get_image_classification(cls) -> Optional["Pipeline"]:
         """Loads and returns the image classification pipeline."""
         if not cls.local_models_enabled():
             return None
+        from transformers import pipeline  # lazy import
         if cls._image_classification_pipeline is None:
             model_name = os.getenv("HF_MODEL_IMAGE_CLASS", "google/vit-base-patch16-224")
             try:
@@ -260,4 +273,3 @@ if __name__ == "__main__":
         print(f"\nGenerated Text: {generated_text[0]['generated_text']}")
     else:
         print("Text generation model not available.")
-        
