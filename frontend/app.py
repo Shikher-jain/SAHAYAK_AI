@@ -250,7 +250,7 @@ def page_upload():
                         endpoint, mime_type = route
                         uploaded.seek(0)
                         files = {"file": (uploaded.name, uploaded, mime_type)}
-                        ok, payload, detail = _call_backend("post", endpoint, files=files)
+                        ok, payload, detail = _call_backend("post", endpoint, files=files, timeout=300)
                         if ok:
                             st.success(f"✅ Ingested {uploaded.name}")
                             ingested_name = uploaded.name

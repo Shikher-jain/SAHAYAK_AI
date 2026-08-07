@@ -38,7 +38,13 @@ def get_db() -> Session:
         db.close()
 
 
+# def init_db() -> None:
+#     """Create all tables if they do not exist."""
+#     from backend.auth_system import models  # noqa: F401  ensure models are registered
+#     Base.metadata.create_all(bind=engine)
+                    
 def init_db() -> None:
     """Create all tables if they do not exist."""
     from backend.auth_system import models  # noqa: F401  ensure models are registered
+    from backend.rag import conversation_models  # noqa: F401  ensure conversation_messages table is registered
     Base.metadata.create_all(bind=engine)

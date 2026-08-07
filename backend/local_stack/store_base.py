@@ -8,8 +8,12 @@ from pathlib import Path
 from threading import Lock
 from typing import Dict, List, Tuple
 
-import faiss
 import numpy as np
+
+# `faiss` is imported lazily, inside build_faiss_index_with_metadata() —
+# not at module load. Qdrant Cloud is the primary vector store; FAISS is
+# only the fallback path when Qdrant is unavailable, so it shouldn't cost
+# RAM at every startup when that fallback never actually gets used.
 
 
 class SQLiteFaissStore:
@@ -144,9 +148,12 @@ class SQLiteFaissStore:
             ):
                 return self._cached_index, self._cached_texts, self._cached_metadata
 
+        import faiss  # lazy import — only loaded when the FAISS fallback path actually runs
+
         texts, embeddings, metadatas = self.get_all_records()
         # BUG 3 FIX: use inner product index (embeddings are normalized at source).
         index = faiss.IndexFlatIP(self.embed_dim)
+
         if len(embeddings):
             index.add(embeddings)
 

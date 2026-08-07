@@ -1,10 +1,16 @@
+from __future__ import annotations
+
 from typing import Dict, List, Tuple
 
-import faiss
 import numpy as np
 
 from backend.common.data_paths import get_local_db_path
 from backend.local_stack.store_base import SQLiteFaissStore
+
+# `faiss` isn't imported here at all — this module never calls faiss
+# functions directly, only delegates to SQLiteFaissStore (which lazy-imports
+# it itself). `from __future__ import annotations` makes the faiss.IndexFlatIP
+# type hints below valid as strings without needing the import.
 
 DB_PATH = get_local_db_path()
 EMBED_DIM = 384
