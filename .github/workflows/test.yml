@@ -24,4 +24,6 @@ jobs:
         run: pip install -r requirements.txt -r requirements-dev.txt
 
       - name: Run tests
-        run: pytest backend/tests -v
+        run: |
+          export PYTHONPATH=$PYTHONPATH:$(pwd)
+          pytest backend/tests -v
