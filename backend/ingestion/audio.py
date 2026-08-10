@@ -51,18 +51,30 @@ def _hf_api_transcribe(audio_path: Path) -> Optional[str]:
     model = os.getenv("HF_MODEL_ASR", "openai/whisper-base")
     url = f"{_HF_API_BASE}/{model}/pipeline/automatic-speech-recognition"
     headers = {"Authorization": f"Bearer {os.getenv('HUGGINGFACEHUB_API_TOKEN', '')}"}
+
     try:
         audio_bytes = audio_path.read_bytes()
-        resp = requests.post(url, headers=headers, data=audio_bytes, timeout=60)
+        _CONTENT_TYPES = {
+            ".mp3": "audio/mpeg",
+            ".wav": "audio/wav",
+            ".flac": "audio/flac",
+            ".aac": "audio/aac",
+            ".m4a": "audio/mp4",  # M4A is technically an MP4 container — audio/mp4 tends to be more reliably recognized than audio/x-m4a
+            ".ogg": "audio/ogg",
+            ".wma": "audio/x-ms-wma",
+        }
+        content_type = _CONTENT_TYPES.get(audio_path.suffix.lower(), "application/octet-stream")
+        req_headers = {**headers, "Content-Type": content_type}
+
+        resp = requests.post(url, headers=req_headers, data=audio_bytes, timeout=60)
         if resp.status_code == 503:
             logger.info("HF ASR model %s is cold-starting, retrying...", model)
             resp = requests.post(
-                url,
-                headers={**headers, "Content-Type": "application/octet-stream"},
-                data=audio_bytes,
-                params={"wait_for_model": "true"},
-                timeout=90,
+                url, headers=req_headers, data=audio_bytes,
+                params={"wait_for_model": "true"}, timeout=90,
             )
+        if resp.status_code >= 400:
+            logger.error("HF ASR error — status=%s body=%s", resp.status_code, resp.text[:1000])
         resp.raise_for_status()
         result = resp.json()
         return result.get("text", "").strip() if isinstance(result, dict) else None
