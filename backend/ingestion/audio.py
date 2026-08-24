@@ -48,7 +48,7 @@ def _hf_api_transcribe(audio_path: Path) -> Optional[str]:
     except ImportError:
         return None
 
-    model = os.getenv("HF_MODEL_ASR", "openai/whisper-base")
+    model = os.getenv("HF_MODEL_ASR", "distil-whisper/distil-medium.en")
     url = f"{_HF_API_BASE}/{model}/pipeline/automatic-speech-recognition"
     headers = {"Authorization": f"Bearer {os.getenv('HUGGINGFACEHUB_API_TOKEN', '')}"}
 
