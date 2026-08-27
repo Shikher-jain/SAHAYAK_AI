@@ -4,7 +4,8 @@ import os
 
 from fastapi import Header, HTTPException
 
-
+from dotenv import load_dotenv
+load_dotenv()
 def _configured_api_key() -> str:
     return os.getenv("SAHAYAK_API_KEY", "").strip()
 

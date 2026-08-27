@@ -24,7 +24,8 @@ load_dotenv()
 # JWT_SECRET_KEY MUST be set in the environment / .env file — no insecure default.
 # Generate one with: openssl rand -hex 32
 try:
-    SECRET_KEY = os.environ["JWT_SECRET_KEY"]
+    # SECRET_KEY = os.environ["JWT_SECRET_KEY"]  
+    SECRET_KEY = os.getenv('JWT_SECRET_KEY')
 except KeyError as exc:
     raise RuntimeError(
         "JWT_SECRET_KEY environment variable is not set. "

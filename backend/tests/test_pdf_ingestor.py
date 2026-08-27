@@ -1,7 +1,8 @@
 import unittest
 import tempfile
 from pathlib import Path
-
+from dotenv import load_dotenv
+load_dotenv()
 from backend.ingestion.pdf import extract_pdf_text
 
 class TestPDFIngestion(unittest.TestCase):
@@ -12,7 +13,7 @@ class TestPDFIngestion(unittest.TestCase):
         pdf = FPDF()
         pdf.add_page()
         pdf.set_font("Arial", size=12)
-        pdf.cell(200, 10, txt="Hello PDF World!", ln=True)
+        pdf.cell(200, 10, text="Hello PDF World!", ln=True)
         pdf.output(self.test_pdf.name)
 
     def test_extract_pdf_text(self):

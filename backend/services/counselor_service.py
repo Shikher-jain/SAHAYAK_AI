@@ -3,7 +3,8 @@ from __future__ import annotations
 
 import os
 from typing import Any, Dict, List
-
+from dotenv import load_dotenv
+load_dotenv()
 # System prompt for the counselor persona
 _COUNSELOR_SYSTEM_PROMPT = """You are an expert academic and career counselor for Sahayak AI.
 Your role is to help students and teachers with:

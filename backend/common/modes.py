@@ -14,6 +14,8 @@ Each mode provides:
 from __future__ import annotations
 
 from typing import Dict, Set
+from dotenv import load_dotenv
+load_dotenv()
 
 
 # ---------------------------------------------------------------------------

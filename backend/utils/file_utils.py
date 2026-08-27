@@ -4,7 +4,8 @@ import os
 import tempfile
 import time
 from pathlib import Path
-
+from dotenv import load_dotenv
+load_dotenv()
 TMP_DIR = Path.home() / ".sahayak_ai" / "tmp"
 TMP_DIR.mkdir(parents=True, exist_ok=True)
 

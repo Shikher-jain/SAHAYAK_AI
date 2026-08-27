@@ -17,7 +17,8 @@ import numpy as np
 from sklearn.metrics.pairwise import cosine_similarity
 
 from backend.common.embedder import embed_text, embed_texts
-
+from dotenv import load_dotenv
+load_dotenv()
 
 def rewrite_query(query: str) -> str:
     """

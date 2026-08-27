@@ -7,6 +7,9 @@ from pathlib import Path
 from sqlalchemy import create_engine
 from sqlalchemy.orm import declarative_base, sessionmaker, Session
 
+from dotenv import load_dotenv
+load_dotenv()
+
 # Database path — stored alongside local stack data for consistency.
 _BASE_DIR = Path(__file__).resolve().parents[2]
 _DB_DIR = _BASE_DIR / "data" / "auth"

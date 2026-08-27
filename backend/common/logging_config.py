@@ -14,7 +14,8 @@ from __future__ import annotations
 import logging
 import os
 import sys
-
+from dotenv import load_dotenv
+load_dotenv()
 
 def configure_logging(level: int | None = None) -> None:
     """Configure root logging once for the whole app.

@@ -2,7 +2,8 @@ import os
 import tempfile
 import unittest
 from unittest.mock import patch
-
+from dotenv import load_dotenv
+load_dotenv()
 from backend.ingestion.audio import transcribe_audio
 
 

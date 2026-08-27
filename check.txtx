@@ -1,0 +1,7 @@
+common/data_paths.py : check finetune wala code
+ingestion/url.py : check link in fetch_url_text
+local_stack/* : why we need if we used all deployed stuff
+local_stack/db.py : faiss error
+local_stack/store_base.py : faiss error
+
+common/rate_limit.py  :  Complete the code if needed

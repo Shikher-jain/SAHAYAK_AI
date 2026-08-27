@@ -6,7 +6,8 @@ import uuid
 from typing import Any, Dict, List
 
 import numpy as np
-
+from dotenv import load_dotenv
+load_dotenv()
 try:
     from qdrant_client import QdrantClient
     from qdrant_client.http import models as qmodels

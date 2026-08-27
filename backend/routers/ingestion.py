@@ -14,6 +14,9 @@ from backend.utils.file_utils import create_named_temp_from_bytes, safe_unlink
 
 router = APIRouter(tags=["multimodal-ingestion"], dependencies=[Depends(api_key_auth)])
 
+from dotenv import load_dotenv
+load_dotenv()
+
 # Extension -> modality, used by the batch endpoint to auto-route each file
 # to the right extractor. Kept as a simple lookup rather than magic-byte
 # sniffing — good enough for user uploads where the extension is reliable.
@@ -34,7 +37,6 @@ async def _persist_upload(file: UploadFile) -> tuple[str, bytes]:
     tmp_path = create_named_temp_from_bytes(payload, original_name=file.filename or "upload.bin")
     return str(tmp_path), payload
 
-
 @router.post("/audio")
 async def ingest_audio_endpoint(file: UploadFile = File(...), target: str = "auto"):
     temp_path, _ = await _persist_upload(file)
@@ -46,7 +48,6 @@ async def ingest_audio_endpoint(file: UploadFile = File(...), target: str = "aut
         return {"transcription": transcript, "records": records}
     finally:
         safe_unlink(temp_path)
-
 
 @router.post("/video")
 async def ingest_video_endpoint(file: UploadFile = File(...), target: str = "auto"):
@@ -60,7 +61,6 @@ async def ingest_video_endpoint(file: UploadFile = File(...), target: str = "aut
     finally:
         safe_unlink(temp_path)
 
-
 @router.post("/image")
 async def ingest_image_endpoint(file: UploadFile = File(...), target: str = "auto"):
     tmp_path, payload = await _persist_upload(file)
@@ -71,7 +71,6 @@ async def ingest_image_endpoint(file: UploadFile = File(...), target: str = "aut
         return {"ocr_text": text, "records": records}
     finally:
         safe_unlink(tmp_path)
-
 
 @router.post("/pdf", dependencies=[])
 async def ingest_pdf_endpoint(file: UploadFile = File(...), target: str = "auto"):
@@ -86,13 +85,11 @@ async def ingest_pdf_endpoint(file: UploadFile = File(...), target: str = "auto"
     finally:
         safe_unlink(tmp_path)
 
-
 @router.post("/text")
 async def ingest_text_endpoint(text: str = Form(...), target: str = "auto"):
     metadata = {"source": "manual", "modality": "text"}
     records = vector_service.ingest_text(normalize_text(text), metadata=metadata, target=target)
     return {"records": records}
-
 
 @router.post("/url")
 async def ingest_url_endpoint(url: str = Form(...), target: str = "auto"):
@@ -104,6 +101,29 @@ async def ingest_url_endpoint(url: str = Form(...), target: str = "auto"):
     records = vector_service.ingest_text(text, metadata=metadata, target=target)
     return {"chunks": len(records), "records": records}
 
+@router.post("/youtube")
+async def ingest_youtube_endpoint(url: str = Form(...), target: str = "auto"):
+    """YouTube video -> text. Tries official transcript first (fast, free);
+    falls back to downloading audio + Whisper/STT (via HF Inference API,
+    same pipeline as /ingest/audio) if the video has no captions."""
+
+    from backend.ingestion.youtube import extract_video_id, get_youtube_text
+
+    if not extract_video_id(url):
+        raise HTTPException(status_code=400, detail="Not a recognizable YouTube URL.")
+    try:
+        text = get_youtube_text(url)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except RuntimeError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+    if not text or not text.strip():
+        raise HTTPException(status_code=400, detail="No transcribable content found for this video.")
+
+    metadata = {"source": url, "modality": "youtube"}
+    records = vector_service.ingest_text(text, metadata=metadata, target=target)
+    return {"chunks": len(records), "records": records}
 
 @router.post("/code")
 async def ingest_code_endpoint(file: UploadFile = File(...), target: str = "auto"):

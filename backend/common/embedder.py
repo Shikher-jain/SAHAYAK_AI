@@ -28,12 +28,18 @@ import os
 from typing import List, Optional
 
 import numpy as np
+from dotenv import load_dotenv
+
+load_dotenv()
+
 
 _DEFAULT_MODEL = "all-MiniLM-L6-v2"
 # Confirmed working via manual endpoint testing (2026-08) — HF migrated the
 # Inference API to this router-based domain; the old api-inference.huggingface.co
 # subdomain no longer resolves at all.
-_HF_API_BASE = "/hf-inference/models"
+
+# _HF_API_BASE = "/hf-inference/models"
+_HF_API_BASE = "https://router.huggingface.co/hf-inference/models"
 
 # Singleton state for the LOCAL fallback model — only ever populated if
 # ENABLE_LOCAL_ML_MODELS=true and the HF API path is unavailable/fails.

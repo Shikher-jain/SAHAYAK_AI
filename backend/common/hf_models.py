@@ -21,7 +21,8 @@ from __future__ import annotations
 import os
 from functools import lru_cache
 from typing import Any, Dict, List, Optional, TYPE_CHECKING, Union
-
+from dotenv import load_dotenv
+load_dotenv()
 if TYPE_CHECKING:
     # Only imported for type checkers — never at runtime. This keeps
     # torch/transformers OUT of the import chain entirely when

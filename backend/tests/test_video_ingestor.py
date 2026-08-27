@@ -3,7 +3,8 @@ import os
 import tempfile
 from pathlib import Path
 from unittest.mock import patch
-
+from dotenv import load_dotenv
+load_dotenv()
 from backend.ingestion.video import transcribe_video
 
 class TestVideoIngestion(unittest.TestCase):

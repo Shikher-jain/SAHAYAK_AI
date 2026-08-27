@@ -16,6 +16,8 @@ import os
 import re
 import logging
 from typing import Any, Dict, List, Optional
+from dotenv import load_dotenv
+load_dotenv()
 
 from backend.rag.system_prompt import build_system_prompt, build_user_prompt, build_follow_up_prompt
 

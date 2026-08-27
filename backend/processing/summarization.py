@@ -10,6 +10,7 @@ def _get_summarizer():
             from transformers import pipeline
 
             _summarizer = pipeline("summarization", model="facebook/bart-large-cnn")
+            _summarizer = pipeline("summarization", model="sshleifer/distilbart-cnn-12-6")
         except Exception:
             _summarizer = None
     return _summarizer

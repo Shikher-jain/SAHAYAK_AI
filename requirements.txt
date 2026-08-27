@@ -9,68 +9,74 @@ slowapi
 python-multipart
 
 # Core ML / NLP
-# torch>=2.6
-# transformers>=4.46,<5.0
 sentence-transformers
+sentencepiece
 
-# RAG + LLM
+# RAG / LLM
 langchain==0.0.350
 langchain-community==0.0.20
 openai
 groq
 
-# Vector DB
+# Vector Databases
 qdrant-client
 faiss-cpu
 
-# Auth / Security
+# Database / Authentication / Security
+sqlalchemy
+psycopg2-binary
 python-jose[cryptography]
 passlib[bcrypt]
 bcrypt
-psycopg2-binary
-sqlalchemy
 
 # Data Processing
 numpy<2.0
 pandas
 openpyxl
+scikit-learn
 
-# Frontend & Visualization
+# Frontend / Visualization
 streamlit
 streamlit-option-menu
 streamlit-extras
 plotly
 altair
 
-# Utilities
-python-dateutil
-networkx
-scikit-learn
-gtts
-tqdm
-requests
-httpx
-beautifulsoup4
-langdetect
-sentencepiece
-
-# Document Processing (lean)
+# Document Processing
 pytesseract
 pdfplumber
 PyMuPDF
+fpdf
 
-# Audio (optional)
+# Audio / Speech
 openai-whisper
 gTTS
 
-# Fine-tuning (optional, GPU recommended)
+# Web / Network Utilities
+requests
+httpx
+beautifulsoup4
+youtube_transcript_api
+
+# General Utilities
+python-dateutil
+networkx
+langdetect
+tqdm
+
+# Media Processing
+moviepy
+Pillow
+
+# Fine-tuning / GPU Support (Optional)
 peft
 bitsandbytes
 accelerate
 
+# Optional: Uncomment if using local PyTorch / Transformers
+# torch>=2.6
+# transformers>=4.46,<5.0
 
 moviepy
-Pillow
 youtube_transcript_api
-fpdf
-python-dotenv
+yt-dlp
