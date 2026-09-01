@@ -43,26 +43,29 @@ def generate_quiz_from_context(context: str, num_questions: int = 5) -> List[Dic
     gen = Generator()
     prompt = (
         f"Generate exactly {num_questions} quiz questions from this content. "
-        "Return JSON array of objects with fields: question, options (list of 4 strings), "
-        "correct_answer (index 0-3), explanation.\n\n"
-        f"Content:\n{context[:2000]}\n\nQuestions JSON:"
+        "Return ONLY a raw JSON array of objects with fields: question, options (list of 4 strings), "
+        "correct_answer (index 0-3), explanation. Do NOT include markdown code blocks or introductory text.\n\n"
+        f"Content:\n{context[:2000]}\n\nJSON:"
     )
+    answer_text = ""
     try:
         result = gen.generate_answer(context[:2000], prompt, sources=None)
-        # Parse the answer as JSON; fall back to simple extraction
         answer_text = result.get("answer", "")
-        # Try to extract JSON array from the response
-        start = answer_text.find("[")
-        end = answer_text.rfind("]") + 1
+        clean_text = answer_text
+        if "```" in clean_text:
+            lines = [line for line in clean_text.splitlines() if not line.strip().startswith("```")]
+            clean_text = "\n".join(lines)
+        start = clean_text.find("[")
+        end = clean_text.rfind("]") + 1
         if start >= 0 and end > start:
-            questions = json.loads(answer_text[start:end])
-            return questions
+            questions = json.loads(clean_text[start:end])
+            if isinstance(questions, list) and len(questions) > 0:
+                return questions
     except Exception:
         import logging
         logger = logging.getLogger("sahayak.quiz_service")
-        raw_preview = locals().get('answer_text', '')[:500] if isinstance(locals().get('answer_text'), str) else "N/A"
+        raw_preview = answer_text[:500] if isinstance(answer_text, str) else "N/A"
         logger.warning("Quiz generation JSON parse failed. Raw LLM output (first 500 chars): %s", raw_preview)
-    # Fallback: generate simple fill-in-the-blank questions from sentences
     return _fallback_quiz(context, num_questions)
 
 
@@ -74,7 +77,6 @@ def _fallback_quiz(context: str, num_questions: int) -> List[Dict[str, Any]]:
         words = sentence.split()
         if len(words) < 5:
             continue
-        # Mask a keyword (middle word)
         mask_idx = len(words) // 2
         blanked = " ".join(words[:mask_idx] + ["___"] + words[mask_idx + 1:])
         questions.append({

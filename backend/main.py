@@ -44,16 +44,17 @@ init_auth_db()  # Initialize JWT auth database tables
 app.add_middleware(GZipMiddleware, minimum_size=1024)
 
 # CORS — origins come from ALLOWED_ORIGINS env var (comma-separated).
-# Defaults to local Streamlit dev server only. allow_origins=["*"] combined with
+# Defaults to local Streamlit and React dev servers. allow_origins=["*"] combined with
 # allow_credentials=True is both a security hole and invalid per the CORS spec
 # (browsers reject wildcard-origin + credentials), so it's intentionally not used.
-_allowed_origins = os.getenv("ALLOWED_ORIGINS", "http://localhost:8501").split(",")
+_default_origins = "http://localhost:8501,http://127.0.0.1:8501,http://localhost:5173,http://127.0.0.1:5173,http://localhost:5174,http://127.0.0.1:5174,http://localhost:3000,http://127.0.0.1:3000"
+_allowed_origins = os.getenv("ALLOWED_ORIGINS", _default_origins).split(",")
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[o.strip() for o in _allowed_origins if o.strip()],
     allow_credentials=True,
-    allow_methods=["GET", "POST", "PUT", "DELETE"],
-    allow_headers=["Authorization", "Content-Type", "X-API-Key"],
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
 
 

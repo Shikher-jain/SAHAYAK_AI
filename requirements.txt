@@ -1,6 +1,6 @@
 --extra-index-url https://download.pytorch.org/whl/cpu
 
-# Backend
+# Backend & Web Framework
 fastapi
 uvicorn[standard]
 python-dotenv
@@ -8,11 +8,12 @@ pydantic
 slowapi
 python-multipart
 
-# Core ML / NLP
+# Core ML / NLP / Embeddings
 sentence-transformers
 sentencepiece
+langdetect
 
-# RAG / LLM
+# RAG & LLM Providers
 langchain==0.0.350
 langchain-community==0.0.20
 openai
@@ -22,61 +23,58 @@ groq
 qdrant-client
 faiss-cpu
 
-# Database / Authentication / Security
+# Database, Auth & Security
 sqlalchemy
 psycopg2-binary
 python-jose[cryptography]
 passlib[bcrypt]
 bcrypt
 
-# Data Processing
+# Data Processing & Analysis
 numpy<2.0
 pandas
 openpyxl
 scikit-learn
+networkx
 
-# Frontend / Visualization
+# Document Processing & Extraction
+pytesseract
+pdfplumber
+PyMuPDF
+fpdf
+reportlab
+
+# Audio, Speech & Transcripts (SDKs & Utilities)
+openai-whisper
+assemblyai
+deepgram-sdk
+elevenlabs
+sarvamai
+gTTS
+youtube_transcript_api
+yt-dlp
+
+# Media & Image Processing
+moviepy
+Pillow
+
+# Web, HTTP & Networking
+requests
+httpx
+beautifulsoup4
+
+# General Utilities
+python-dateutil
+tqdm
+
+# Streamlit Frontend (Legacy / Internal UI)
 streamlit
 streamlit-option-menu
 streamlit-extras
 plotly
 altair
 
-# Document Processing
-pytesseract
-pdfplumber
-PyMuPDF
-fpdf
-
-# Audio / Speech
-openai-whisper
-gTTS
-
-# Web / Network Utilities
-requests
-httpx
-beautifulsoup4
-youtube_transcript_api
-
-# General Utilities
-python-dateutil
-networkx
-langdetect
-tqdm
-
-# Media Processing
-moviepy
-Pillow
-
-# Fine-tuning / GPU Support (Optional)
+# Fine-tuning & Acceleration (Optional)
 peft
 bitsandbytes
 accelerate
-
-# Optional: Uncomment if using local PyTorch / Transformers
-# torch>=2.6
-# transformers>=4.46,<5.0
-
-moviepy
-youtube_transcript_api
-yt-dlp

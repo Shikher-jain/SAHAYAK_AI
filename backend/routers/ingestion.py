@@ -85,14 +85,27 @@ async def ingest_pdf_endpoint(file: UploadFile = File(...), target: str = "auto"
     finally:
         safe_unlink(tmp_path)
 
+from fastapi import Request
+from backend.common.request_utils import get_request_data
+
 @router.post("/text")
-async def ingest_text_endpoint(text: str = Form(...), target: str = "auto"):
+async def ingest_text_endpoint(request: Request):
+    data = await get_request_data(request)
+    text = str(data.get("text") or data.get("content") or "").strip()
+    if not text:
+        raise HTTPException(status_code=400, detail="Text content is required.")
+    target = str(data.get("target") or "auto")
     metadata = {"source": "manual", "modality": "text"}
     records = vector_service.ingest_text(normalize_text(text), metadata=metadata, target=target)
     return {"records": records}
 
 @router.post("/url")
-async def ingest_url_endpoint(url: str = Form(...), target: str = "auto"):
+async def ingest_url_endpoint(request: Request):
+    data = await get_request_data(request)
+    url = str(data.get("url") or "").strip()
+    if not url:
+        raise HTTPException(status_code=400, detail="URL is required.")
+    target = str(data.get("target") or "auto")
     try:
         text = fetch_url_text(url)
     except ValueError as exc:
@@ -102,12 +115,18 @@ async def ingest_url_endpoint(url: str = Form(...), target: str = "auto"):
     return {"chunks": len(records), "records": records}
 
 @router.post("/youtube")
-async def ingest_youtube_endpoint(url: str = Form(...), target: str = "auto"):
+async def ingest_youtube_endpoint(request: Request):
     """YouTube video -> text. Tries official transcript first (fast, free);
     falls back to downloading audio + Whisper/STT (via HF Inference API,
     same pipeline as /ingest/audio) if the video has no captions."""
 
     from backend.ingestion.youtube import extract_video_id, get_youtube_text
+
+    data = await get_request_data(request)
+    url = str(data.get("url") or "").strip()
+    if not url:
+        raise HTTPException(status_code=400, detail="YouTube URL is required.")
+    target = str(data.get("target") or "auto")
 
     if not extract_video_id(url):
         raise HTTPException(status_code=400, detail="Not a recognizable YouTube URL.")

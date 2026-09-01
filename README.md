@@ -118,15 +118,16 @@ Groq (Llama 3 70B)
 
 ## 🛠️ Tech Stack
 
-| Layer           | Technology                               |
-| --------------- | ---------------------------------------- |
-| Frontend        | Streamlit                                |
-| Backend         | FastAPI + SQLAlchemy                     |
-| Vector Database | Qdrant + FAISS                           |
-| Embeddings      | sentence-transformers/all-MiniLM-L6-v2   |
-| LLMs            | Groq → OpenAI → HuggingFace              |
-| Authentication  | JWT + bcrypt + OAuth2                    |
-| Memory          | LangChain ConversationBufferWindowMemory |
+| Layer            | Technology                                  |
+| ---------------  | ----------------------------------------    |
+| Frontend (React) | React + Vite + Tailwind CSS (`sahayak-ui`)  |
+| Frontend(Python) | Streamlit (`frontend/app.py`)               |
+| Backend          | FastAPI + SQLAlchemy                        |
+| Vector Database  | Qdrant + FAISS                              |
+| Embeddings       | sentence-transformers/all-MiniLM-L6-v2      |
+| LLMs             | Groq → OpenAI → HuggingFace                 |
+| Authentication   | JWT + bcrypt + OAuth2                       |
+| Memory           | LangChain ConversationBufferWindowMemory    |
 
 ---
 
@@ -175,7 +176,19 @@ uvicorn backend.main:app --reload --port 8000
 
 ---
 
-## ▶️ Run Frontend
+## ▶️ Run Frontends
+
+You can use either (or both) of the supported frontend applications:
+
+### Option A: React Frontend (Modern UI)
+
+```bash
+cd sahayak-ui
+npm install
+npm run dev
+```
+
+### Option B: Streamlit Frontend (Classic UI)
 
 ```bash
 streamlit run frontend/app.py
