@@ -1,6 +1,6 @@
 // Standardized API client for Sahayak AI
 
-export const DEFAULT_BACKEND_URL = (import.meta.env && import.meta.env.VITE_BACKEND_URL) || "http://127.0.0.1:8000";
+export const DEFAULT_BACKEND_URL = (import.meta.env && import.meta.env.BACKEND_URL) || "http://127.0.0.1:8000";
 
 export const getBackendUrl = () => {
   return localStorage.getItem("backend_url") || DEFAULT_BACKEND_URL;
