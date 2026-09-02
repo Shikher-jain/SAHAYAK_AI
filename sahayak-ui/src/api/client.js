@@ -75,10 +75,11 @@ export const callBackend = async (method, path, data = null, customHeaders = {})
 
     return { ok: true, data: payload, status: response.status, error: null };
   } catch (error) {
-    const isNetworkError = error.message?.includes("Failed to fetch") || error.name === "TypeError";
-    const userError = isNetworkError 
-      ? `Cannot connect to server at ${baseUrl}. Ensure backend is running.`
-      : error.message || "Network request failed";
+    const isNetworkError = error.message?.includes('Failed to fetch') || error.name === 'TypeError';
+    // Do NOT expose the raw URL — show a friendly message instead.
+    const userError = isNetworkError
+      ? 'Unable to reach the AI backend. It may be starting up — please wait a moment and try again.'
+      : error.message || 'Network request failed';
     
     return { 
       ok: false, 

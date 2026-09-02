@@ -134,9 +134,11 @@ export const SettingsPage = () => {
           ))}
         </div>
       </Card>
-
+{/* 
+=====================ADMIN ONLY==========================
+*/}
       {/* Backend & API Configuration */}
-      <Card className="p-6 sm:p-7 space-y-6">
+      {/* <Card className="p-6 sm:p-7 space-y-6">
         <h3 className="text-sm font-bold text-slate-900 dark:text-white flex items-center gap-2">
           <Database size={18} className="text-emerald-500" />
           Backend API Connection
@@ -176,7 +178,7 @@ export const SettingsPage = () => {
             </Button>
           </div>
         </form>
-      </Card>
+      </Card> */}
 
       {/* Account & Sign Out */}
       <Card className="p-6 sm:p-7 border-rose-100 dark:border-rose-950/50 space-y-4">

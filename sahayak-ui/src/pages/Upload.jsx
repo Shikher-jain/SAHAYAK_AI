@@ -1,7 +1,7 @@
 import React, { useState, useRef } from 'react';
 import { 
   UploadCloud, FileText, Globe, AlignLeft, CheckCircle2, 
-  AlertCircle, X, ArrowRight, Layers, FileCode 
+  AlertCircle, X, ArrowRight, Layers, FileCode, Mic, MicOff, Square
 } from 'lucide-react';
 
 import { useAppContext } from '../context/AppContext';
@@ -14,20 +14,28 @@ import { Badge } from '../components/ui/Badge';
 
 export const Upload = () => {
   const { showSuccess, showError, setCurrentPage } = useAppContext();
-  const [activeTab, setActiveTab] = useState('files');
-  const [files, setFiles] = useState([]);
-  const [urlInput, setUrlInput] = useState('');
-  const [textTitle, setTextTitle] = useState('');
-  const [textContent, setTextContent] = useState('');
-  const [loading, setLoading] = useState(false);
-  const [result, setResult] = useState(null);
-  const [isDragging, setIsDragging] = useState(false);
+  const [activeTab, setActiveTab]       = useState('files');
+  const [files, setFiles]               = useState([]);
+  const [urlInput, setUrlInput]         = useState('');
+  const [textTitle, setTextTitle]       = useState('');
+  const [textContent, setTextContent]   = useState('');
+  const [loading, setLoading]           = useState(false);
+  const [result, setResult]             = useState(null);
+  const [isDragging, setIsDragging]     = useState(false);
   const fileInputRef = useRef(null);
 
+  // ─── Audio recording state ─────────────────────────────────────────────────
+  const [recording, setRecording]       = useState(false);
+  const [audioBlob, setAudioBlob]       = useState(null);
+  const [audioUrl, setAudioUrl]         = useState(null);
+  const mediaRecorderRef = useRef(null);
+  const audioChunksRef   = useRef([]);
+
   const tabs = [
-    { id: 'files', label: 'Document Files', icon: FileText, desc: 'PDF, DOCX, TXT, MD, CSV' },
-    { id: 'url', label: 'Web Article / URL', icon: Globe, desc: 'Public website, blog, or documentation link' },
-    { id: 'text', label: 'Raw Notes / Text', icon: AlignLeft, desc: 'Paste syllabus chapters, notes, or essays' },
+    { id: 'files', label: 'Document Files',    icon: FileText,   desc: 'PDF, TXT, MD, CSV, code files' },
+    { id: 'audio', label: 'Record Audio',       icon: Mic,        desc: 'Record voice notes or lectures' },
+    { id: 'url',   label: 'Web Article / URL',  icon: Globe,      desc: 'Public website or documentation link' },
+    { id: 'text',  label: 'Raw Notes / Text',   icon: AlignLeft,  desc: 'Paste syllabus chapters or notes' },
   ];
 
   const handleFileChange = (e) => {
@@ -67,6 +75,38 @@ export const Upload = () => {
     return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
   };
 
+  // ─── Audio recording helpers ────────────────────────────────────────────────
+  const startRecording = async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      audioChunksRef.current = [];
+      const mr = new MediaRecorder(stream, { mimeType: 'audio/webm' });
+      mr.ondataavailable = (e) => { if (e.data.size > 0) audioChunksRef.current.push(e.data); };
+      mr.onstop = () => {
+        const blob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
+        setAudioBlob(blob);
+        setAudioUrl(URL.createObjectURL(blob));
+        stream.getTracks().forEach((t) => t.stop());
+      };
+      mr.start();
+      mediaRecorderRef.current = mr;
+      setRecording(true);
+    } catch {
+      showError('Microphone access denied. Please allow microphone in browser settings.');
+    }
+  };
+
+  const stopRecording = () => {
+    mediaRecorderRef.current?.stop();
+    setRecording(false);
+  };
+
+  const clearRecording = () => {
+    setAudioBlob(null);
+    if (audioUrl) URL.revokeObjectURL(audioUrl);
+    setAudioUrl(null);
+  };
+
   const handleIngest = async () => {
     setLoading(true);
     setResult(null);
@@ -79,31 +119,25 @@ export const Upload = () => {
       if (activeTab === 'files') {
         if (files.length === 0) return;
         const formData = new FormData();
-        files.forEach((file) => {
-          formData.append('files', file);
-        });
+        files.forEach((file) => formData.append('files', file));
         const res = await callBackend('post', '/ingest/batch', formData);
-        ok = res.ok;
-        data = res.data;
-        error = res.error;
+        ok = res.ok; data = res.data; error = res.error;
+      } else if (activeTab === 'audio') {
+        if (!audioBlob) return;
+        const formData = new FormData();
+        formData.append('file', audioBlob, 'recording.webm');
+        const res = await callBackend('post', '/ingest/audio', formData);
+        ok = res.ok; data = res.data; error = res.error;
       } else if (activeTab === 'url') {
         if (!urlInput.trim()) return;
         const res = await callBackend('post', '/ingest/url', { url: urlInput.trim() });
-        ok = res.ok;
-        data = res.data;
-        error = res.error;
+        ok = res.ok; data = res.data; error = res.error;
       } else if (activeTab === 'text') {
         if (!textContent.trim()) return;
-        const payload = {
-          text: textContent.trim(),
-          title: textTitle.trim() || 'Untitled Note',
-          content: textContent.trim()
-        };
-        const res = await callBackend('post', '/ingest/text', payload);
-        ok = res.ok;
-        data = res.data;
-        error = res.error;
+        const res = await callBackend('post', '/ingest/text', { text: textContent.trim(), title: textTitle.trim() || 'Untitled Note', content: textContent.trim() });
+        ok = res.ok; data = res.data; error = res.error;
       }
+
 
       if (ok) {
         setResult({
@@ -138,8 +172,9 @@ export const Upload = () => {
   const isSubmitDisabled = () => {
     if (loading) return true;
     if (activeTab === 'files') return files.length === 0;
-    if (activeTab === 'url') return !urlInput.trim();
-    if (activeTab === 'text') return !textContent.trim();
+    if (activeTab === 'audio') return !audioBlob;
+    if (activeTab === 'url')   return !urlInput.trim();
+    if (activeTab === 'text')  return !textContent.trim();
     return true;
   };
 
@@ -152,7 +187,7 @@ export const Upload = () => {
       />
 
       {/* Tabs */}
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
         {tabs.map((tab) => {
           const Icon = tab.icon;
           const isActive = activeTab === tab.id;
@@ -258,6 +293,63 @@ export const Upload = () => {
                     </div>
                   ))}
                 </div>
+              </div>
+            )}
+          </div>
+        )}
+
+        {activeTab === 'audio' && (
+          <div className="space-y-6">
+            <div className="text-center space-y-3">
+              <div className={`w-20 h-20 mx-auto rounded-full flex items-center justify-center transition-all shadow-inner ${
+                recording
+                  ? 'bg-rose-100 dark:bg-rose-950/50 ring-4 ring-rose-400 ring-offset-4 dark:ring-offset-slate-900 animate-pulse'
+                  : 'bg-slate-100 dark:bg-slate-800'
+              }`}>
+                {recording ? <MicOff size={36} className="text-rose-600" /> : <Mic size={36} className="text-slate-500" />}
+              </div>
+              <p className="text-sm font-semibold text-slate-700 dark:text-slate-300">
+                {recording ? '🔴 Recording in progress…' : audioBlob ? '✅ Recording captured' : 'Click to start recording'}
+              </p>
+              <p className="text-xs text-slate-400">
+                Lectures, voice notes, podcasts — transcribed via Whisper and indexed for Q&A.
+              </p>
+            </div>
+
+            <div className="flex justify-center gap-4">
+              {!recording && !audioBlob && (
+                <button
+                  type="button"
+                  onClick={startRecording}
+                  className="flex items-center gap-2 px-6 py-3 rounded-xl bg-rose-600 hover:bg-rose-700 text-white text-sm font-bold shadow transition-all"
+                >
+                  <Mic size={18} /> Start Recording
+                </button>
+              )}
+              {recording && (
+                <button
+                  type="button"
+                  onClick={stopRecording}
+                  className="flex items-center gap-2 px-6 py-3 rounded-xl bg-slate-700 hover:bg-slate-800 text-white text-sm font-bold shadow animate-pulse"
+                >
+                  <Square size={18} /> Stop
+                </button>
+              )}
+              {audioBlob && !recording && (
+                <button
+                  type="button"
+                  onClick={clearRecording}
+                  className="flex items-center gap-2 px-4 py-2 rounded-xl border border-slate-200 dark:border-slate-700 text-xs text-slate-500 hover:text-rose-500"
+                >
+                  <X size={14} /> Discard
+                </button>
+              )}
+            </div>
+
+            {audioUrl && (
+              <div className="p-4 rounded-xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200/80 dark:border-slate-700/80">
+                <p className="text-xs font-semibold text-slate-600 dark:text-slate-300 mb-2">Preview Recording</p>
+                <audio src={audioUrl} controls className="w-full h-10" />
               </div>
             )}
           </div>
