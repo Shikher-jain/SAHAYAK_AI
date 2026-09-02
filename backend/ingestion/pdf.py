@@ -70,7 +70,7 @@ def _open_fitz(payload: bytes):
     callers treat that as "no fallback available" and keep whatever
     pdfplumber returned, even if empty."""
     try:
-        import fitz  # PyMuPDF
+        import pymupdf as fitz  # Updated import per deprecation notice
     except Exception:
         return None
     try:
@@ -105,7 +105,7 @@ def _ocr_page(page) -> str:
         # 200 DPI is a reasonable balance of OCR accuracy vs. speed/memory
         # for typical document pages — higher helps small text, but costs
         # more time per page.
-        pix = page.get_pixmap(dpi=200)
+        pix = page.get_pixmap(dpi=100)  # Reduced DPI to lower memory usage
         image = Image.open(BytesIO(pix.tobytes("png")))
         return _image_to_string(image)
     except Exception:
