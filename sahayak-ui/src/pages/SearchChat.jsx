@@ -1,4 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 import { 
   Send, Bot, User, Sparkles, Copy, Check, Mic, MicOff, Volume2, VolumeX,
   BookOpen, ChevronDown, ChevronRight, Trash2, Download
@@ -263,7 +265,15 @@ export const SearchChat = ({
                           ? 'bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-900/50 text-rose-800 dark:text-rose-200 rounded-tl-none'
                           : 'bg-slate-100/90 dark:bg-slate-800/80 text-slate-900 dark:text-slate-100 rounded-tl-none border border-slate-200/60 dark:border-slate-700/60'}`}
                     >
-                      <p className="whitespace-pre-wrap">{msg.content}</p>
+                      {isUser ? (
+                        <p className="whitespace-pre-wrap">{msg.content}</p>
+                      ) : (
+                        <div className="prose prose-sm dark:prose-invert max-w-none prose-p:leading-relaxed prose-pre:bg-slate-800 prose-pre:text-slate-100">
+                          <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                            {msg.content}
+                          </ReactMarkdown>
+                        </div>
+                      )}
                     </div>
 
                     {/* Actions for assistant */}
