@@ -15,8 +15,18 @@ SUPPORTED_EXTENSIONS = {
     ".js": "javascript",
     ".ts": "typescript",
     ".cpp": "cpp",
+    ".c": "c",
     ".java": "java",
     ".go": "go",
+    ".rs": "rust",
+    ".rb": "ruby",
+    ".php": "php",
+    ".cs": "csharp",
+    ".swift": "swift",
+    ".kt": "kotlin",
+    ".sh": "bash",
+    ".html": "html",
+    ".css": "css",
 }
 
 _JS_TS_FUNCTION = re.compile(r"^\s*(?:export\s+)?(?:async\s+)?function\s+(\w+)\s*\(")
@@ -31,14 +41,24 @@ _GO_FUNCTION = re.compile(r"^\s*func\s+(?:\([^)]+\)\s+)?(\w+)\s*\(")
 def extract_code_chunks(file_path: str | Path) -> List[Dict[str, Dict[str, str]]]:
     path = Path(file_path)
     extension = path.suffix.lower()
-    if extension not in SUPPORTED_EXTENSIONS:
-        raise ValueError(f"Unsupported code extension: {extension}")
-    language = SUPPORTED_EXTENSIONS[extension]
+    language = SUPPORTED_EXTENSIONS.get(extension, "text")
     content = path.read_text(encoding="utf-8", errors="ignore")
+
+    if not content.strip():
+        return []
 
     if extension == ".py":
         return _extract_python_chunks(content, language)
-    return _extract_generic_chunks(content, language, extension)
+
+    # For extensions we recognise structurally, use the regex chunker;
+    # for everything else, emit a single module-level chunk so the text
+    # still gets stored rather than raising a ValueError.
+    if extension in {".js", ".ts", ".cpp", ".c", ".java", ".go",
+                     ".rs", ".rb", ".php", ".cs", ".swift", ".kt"}:
+        return _extract_generic_chunks(content, language, extension)
+
+    # Catch-all: store as a single opaque module chunk
+    return [{"text": content, "metadata": {"language": language, "chunk_type": "module"}}]
 
 
 def _extract_python_chunks(source: str, language: str) -> List[Dict[str, Dict[str, str]]]:

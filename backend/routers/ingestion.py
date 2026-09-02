@@ -153,6 +153,8 @@ async def ingest_code_endpoint(file: UploadFile = File(...), target: str = "auto
         return {"chunks": len(records), "records": records}
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Code ingestion failed: {exc}") from exc
     finally:
         safe_unlink(temp_path)
 
