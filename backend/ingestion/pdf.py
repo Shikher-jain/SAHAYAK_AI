@@ -1,15 +1,36 @@
 from collections import Counter
 from io import BytesIO
+import logging
 import math
-from pathlib import Path
+import os
 import re
+from pathlib import Path
 
+import requests
+
+logger = logging.getLogger(__name__)
+
+# ---------------------------------------------------------------------------
+# HuggingFace OCR fallback configuration
+# ---------------------------------------------------------------------------
+HF_API_TOKEN: str | None = os.getenv("HF_API_TOKEN")
+HF_OCR_MODEL: str = os.getenv("HF_OCR_MODEL", "baidu/Unlimited-OCR")
+HF_OCR_ENDPOINT: str = f"https://api-inference.huggingface.co/models/{HF_OCR_MODEL}"
+# Pages whose rendered pixmap exceeds this many pixels skip local Tesseract
+# and go straight to the HF API (default: 1 Mpx ≈ 1000×1000).
+OCR_MAX_PIXELS: int = int(os.getenv("OCR_MAX_PIXELS", "1000000"))
+
+# ---------------------------------------------------------------------------
+# Text-cleaning constants
+# ---------------------------------------------------------------------------
 HEADER_FOOTER_THRESHOLD = 0.6
 HEADER_FOOTER_MAX_LENGTH = 120
 UNICODE_BULLET_CODES = (0x2022, 0x2023, 0x25E6, 0x2043, 0x2219)
 UNICODE_BULLETS = "".join(chr(code) for code in UNICODE_BULLET_CODES)
 BULLET_PATTERN = re.compile(rf"^\s*(?:[-*]|(?:\d+|[A-Za-z])[.)]|[{UNICODE_BULLETS}])\s+")
-LEADING_LABEL_PATTERN = re.compile(r"^\s*(?:Figure|Table|Listing|Appendix)\s+\d+[:.-]\s*", re.IGNORECASE)
+LEADING_LABEL_PATTERN = re.compile(
+    r"^\s*(?:Figure|Table|Listing|Appendix)\s+\d+[:.-]\s*", re.IGNORECASE
+)
 NON_ASCII_PATTERN = re.compile(r"[^\x09\x0A\x0D\x20-\x7E]")
 NOISE_PATTERNS = [
     re.compile(r"^\s*page\s+\d+(\s+of\s+\d+)?\s*$", re.IGNORECASE),
@@ -20,13 +41,15 @@ NOISE_PATTERNS = [
 
 # Below this many characters, a page's text-layer extraction is treated as
 # "failed" (rather than "genuinely a near-empty page") and the fallback
-# chain kicks in. 20 is generous enough to not misfire on short pages like
-# a title page, while still catching pages where extraction returned only
-# a stray character or two.
+# chain kicks in.
 MIN_MEANINGFUL_CHARS = 20
 
 
-def extract_pdf_text(pdf_path: Path | str) -> str:
+# ---------------------------------------------------------------------------
+# Public API
+# ---------------------------------------------------------------------------
+
+def extract_pdf_text(pdf_path: "Path | str") -> str:
     payload = Path(pdf_path).read_bytes()
     return extract_pdf_text_from_bytes(payload)
 
@@ -36,16 +59,21 @@ def extract_pdf_text_from_bytes(payload: bytes) -> str:
     return _clean_document_text(pages)
 
 
+# ---------------------------------------------------------------------------
+# Internal extraction pipeline
+# ---------------------------------------------------------------------------
+
 def _extract_pages(payload: bytes) -> list[str]:
     """Extract text per page with automatic fallback: pdfplumber -> PyMuPDF
-    -> OCR. This means a single PDF can have some pages with a normal text
-    layer and other pages that are scanned images, and every page still
-    gets text — the caller (and the end user) never needs to know or
-    specify which pages are which."""
+    -> OCR (Tesseract or HF API). A single PDF can have some pages with a
+    normal text layer and others that are scanned images — every page still
+    gets text; the caller never needs to know which path was taken."""
     try:
         import pdfplumber
     except Exception as exc:
-        raise RuntimeError("pdfplumber is unavailable. Install `pdfplumber` to enable PDF ingestion.") from exc
+        raise RuntimeError(
+            "pdfplumber is unavailable. Install `pdfplumber` to enable PDF ingestion."
+        ) from exc
 
     fitz_doc = _open_fitz(payload)  # None if PyMuPDF isn't installed/usable
     try:
@@ -65,12 +93,11 @@ def _extract_pages(payload: bytes) -> list[str]:
 
 
 def _open_fitz(payload: bytes):
-    """Open the PDF with PyMuPDF for the fallback path. Returns None (not
-    an exception) if PyMuPDF is unavailable or the file can't be opened —
-    callers treat that as "no fallback available" and keep whatever
-    pdfplumber returned, even if empty."""
+    """Open the PDF with PyMuPDF for the fallback path. Returns None (not an
+    exception) if PyMuPDF is unavailable or the file can't be opened —
+    callers treat that as 'no fallback available'."""
     try:
-        import pymupdf as fitz  # Updated import per deprecation notice
+        import pymupdf as fitz  # noqa: PLC0415
     except Exception:
         return None
     try:
@@ -80,10 +107,8 @@ def _open_fitz(payload: bytes):
 
 
 def _fallback_page_text(fitz_doc, page_index: int) -> str:
-    """Tier 2: PyMuPDF's own text extraction (handles some embedded/subset
-    fonts that pdfplumber occasionally fails on, even for genuinely
-    text-based PDFs). Tier 3: OCR the rendered page image (handles actually
-    scanned/image-only pages)."""
+    """Tier 2: PyMuPDF's own text extraction.
+    Tier 3: OCR (Tesseract locally, or HF API when the image is too large)."""
     if fitz_doc is None or page_index >= len(fitz_doc):
         return ""
     page = fitz_doc[page_index]
@@ -95,22 +120,109 @@ def _fallback_page_text(fitz_doc, page_index: int) -> str:
     return _ocr_page(page)
 
 
+# ---------------------------------------------------------------------------
+# OCR – Tesseract (local) with HF API fallback
+# ---------------------------------------------------------------------------
+
 def _ocr_page(page) -> str:
+    """Render *page* to a pixmap and OCR it.
+
+    Strategy:
+    1. Render at 80 DPI (low memory footprint).
+    2. If the rendered size is within OCR_MAX_PIXELS, try local Tesseract.
+    3. On any failure (OOM, missing binary, huge page) fall back to the
+       HuggingFace Inference API.
+    """
     try:
         from backend.ingestion.image import _image_to_string
-        from PIL import Image
+        from PIL import Image  # noqa: PLC0415
     except Exception:
-        return ""
+        logger.warning("PIL / pytesseract not available; skipping local OCR.")
+        from backend.ingestion.image import _image_to_string  # type: ignore
+        Image = None  # will trigger HF fallback below
+
+    pix = None
     try:
-        # 200 DPI is a reasonable balance of OCR accuracy vs. speed/memory
-        # for typical document pages — higher helps small text, but costs
-        # more time per page.
-        pix = page.get_pixmap(dpi=100)  # Reduced DPI to lower memory usage
-        image = Image.open(BytesIO(pix.tobytes("png")))
-        return _image_to_string(image)
-    except Exception:
+        pix = page.get_pixmap(dpi=80)
+    except Exception as exc:
+        logger.warning("Pixmap generation failed: %s — trying HF OCR", exc)
+        return hf_ocr(None)
+
+    png_bytes = pix.tobytes("png")
+
+    # If the page is very large, skip Tesseract and go straight to HF OCR
+    if pix.width * pix.height > OCR_MAX_PIXELS:
+        logger.info(
+            "Page too large (%dx%d px) for local OCR — using HF OCR.",
+            pix.width, pix.height,
+        )
+        return hf_ocr(png_bytes)
+
+    try:
+        image = Image.open(BytesIO(png_bytes))  # type: ignore[union-attr]
+        text = _image_to_string(image).strip()
+        if text:
+            logger.debug("OCR method: local Tesseract")
+            return text
+    except Exception as exc:
+        logger.info("Local OCR failed (%s) — falling back to HF OCR.", exc)
+
+    return hf_ocr(png_bytes)
+
+
+def hf_ocr(image_bytes: "bytes | None") -> str:
+    """Send *image_bytes* to the HuggingFace Inference API for OCR.
+
+    Returns an empty string (never raises) so the ingestion pipeline can
+    continue even when the HF service is unreachable or the token is missing.
+
+    The response format differs by model:
+    - baidu/Unlimited-OCR returns ``{"text": "..."}``
+    - Other models may return a list; we try both shapes.
+    """
+    if not HF_API_TOKEN:
+        logger.warning("HF_API_TOKEN is not set; cannot use HF OCR fallback.")
+        return ""
+    if not image_bytes:
+        logger.warning("hf_ocr called with no image bytes.")
         return ""
 
+    headers = {
+        "Authorization": f"Bearer {HF_API_TOKEN}",
+        "Content-Type": "image/png",
+    }
+    try:
+        resp = requests.post(
+            HF_OCR_ENDPOINT,
+            headers=headers,
+            data=image_bytes,
+            timeout=30,
+        )
+        resp.raise_for_status()
+        payload = resp.json()
+
+        # Handle {"text": "..."} (Baidu model)
+        if isinstance(payload, dict):
+            return payload.get("text", "").strip()
+        # Handle [{"generated_text": "..."}] (some HF pipelines)
+        if isinstance(payload, list) and payload:
+            first = payload[0]
+            if isinstance(first, dict):
+                return (
+                    first.get("generated_text", first.get("text", ""))
+                ).strip()
+            if isinstance(first, str):
+                return first.strip()
+        logger.warning("Unexpected HF OCR response shape: %r", payload)
+        return ""
+    except Exception as exc:
+        logger.warning("HuggingFace OCR failed: %s", exc)
+        return ""
+
+
+# ---------------------------------------------------------------------------
+# Text-cleaning pipeline
+# ---------------------------------------------------------------------------
 
 def _clean_document_text(pages: list[str]) -> str:
     if not pages:
