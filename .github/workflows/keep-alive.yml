@@ -1,0 +1,24 @@
+name: External Total Outage Monitor (Keep-Alive)
+
+on:
+  schedule:
+    # Run every 5 minutes to prevent Render from spinning down and check health
+    - cron: '*/5 * * * *'
+  workflow_dispatch:
+
+jobs:
+  ping-server:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Hit Deep Health Ping Endpoint
+        id: ping
+        run: |
+          # Fails the step if the HTTP status is not 200/2xx or connection times out
+          curl -f -s -S --max-time 10 "${{ secrets.RENDER_EXTERNAL_URL }}/api/v2/health/deep-ping"
+          
+      - name: Send Telegram Alert on Failure
+        if: failure()
+        run: |
+          curl -s -X POST "https://api.telegram.org/bot${{ secrets.ALERT_TELEGRAM_BOT_TOKEN }}/sendMessage" \
+          -d chat_id="${{ secrets.ALERT_TELEGRAM_CHAT_ID }}" \
+          -d text="🚨 CRITICAL: Sahayak AI Render backend is down or unreachable. GitHub Actions health ping failed (HTTP 502/503 or Timeout)."

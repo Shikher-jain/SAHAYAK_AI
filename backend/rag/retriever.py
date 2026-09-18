@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Dict, List
+from typing import Dict, List, Optional, Any
 
 from backend.services import vector_service
 
@@ -19,7 +19,7 @@ from backend.services import vector_service
 MIN_RELEVANCE_SCORE = 0.3
 
 
-def retrieve(query_text: str, top_k: int = 5, target: str = "auto") -> List[Dict[str, str]]:
+async def retrieve(query_text: str, top_k: int = 5, target: str = "auto", filters: Optional[Dict[str, Any]] = None) -> List[Dict[str, str]]:
     """Return semantic search hits using the active vector backends,
     filtered to only those above MIN_RELEVANCE_SCORE. If nothing clears
     the bar, returns an empty list — which is what triggers the "Out of
@@ -27,7 +27,7 @@ def retrieve(query_text: str, top_k: int = 5, target: str = "auto") -> List[Dict
     the LLM irrelevant chunks and letting it guess."""
     if not query_text:
         return []
-    hits = vector_service.search_vectors(query_text, top_k=top_k, target=target)
+    hits = await vector_service.search_vectors(query_text, top_k=top_k, target=target, filters=filters)
     return [h for h in hits if h.get("score", 0) >= MIN_RELEVANCE_SCORE]
 
 
@@ -37,5 +37,5 @@ class Retriever:
     def __init__(self, target: str = "auto") -> None:
         self.target = target
 
-    def search_vectors(self, query_text: str, top_k: int = 5) -> List[Dict[str, str]]:
-        return retrieve(query_text, top_k=top_k, target=self.target)
+    async def search_vectors(self, query_text: str, top_k: int = 5) -> List[Dict[str, str]]:
+        return await retrieve(query_text, top_k=top_k, target=self.target)

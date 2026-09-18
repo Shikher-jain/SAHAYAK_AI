@@ -116,13 +116,13 @@ Groq (Llama 3 70B)
 
 ---
 
-## 🛠️ Tech Stack
+## 🏗️ Architecture & Tech Stack
 
 | Layer            | Technology                                  |
 | ---------------  | ----------------------------------------    |
 | Frontend (React) | React + Vite + Tailwind CSS (`sahayak-ui`)  |
 | Frontend(Python) | Streamlit (`frontend/app.py`)               |
-| Backend          | FastAPI + SQLAlchemy                        |
+| Backend          | FastAPI (Asynchronous) + SQLAlchemy         |
 | Vector Database  | Qdrant + FAISS                              |
 | Embeddings       | sentence-transformers/all-MiniLM-L6-v2      |
 | LLMs             | Groq → OpenAI → HuggingFace                 |
@@ -131,88 +131,95 @@ Groq (Llama 3 70B)
 
 ---
 
-## ⚡ Quick Start
+## 📁 Project Directory Structure
 
-### 1. Clone Repository
-
-```bash
-git clone https://github.com/your-username/SAHAYAK_AI.git
-cd SAHAYAK_AI
-```
-
-### 2. Create Virtual Environment
-
-```bash
-python -m venv venv
-```
-
-### 3. Activate Environment
-
-#### Windows
-
-```powershell
-.\venv\Scripts\activate
-```
-
-#### Linux / macOS
-
-```bash
-source venv/bin/activate
-```
-
-### 4. Install Dependencies
-
-```bash
-pip install -r requirements.txt
+```text
+SAHAYAK_AI/
+│
+├── backend/                  # Core FastAPI Backend
+│   ├── auth_system/          # JWT Auth DB Models & Middleware
+│   ├── common/               # Rate Limiting & Logging
+│   ├── ingestion/            # URL, Text, PDF, Audio parsing (SSRF protected)
+│   ├── routers/              # Decoupled API routes (ingest, quiz, search)
+│   ├── services/             # Core business logic & AI orchestration
+│   ├── vector_store/         # Qdrant & FAISS integrations
+│   └── main.py               # FastAPI App Entrypoint
+│
+├── frontend/                 # Classic UI
+│   └── app.py                # Streamlit Application
+│
+├── sahayak-ui/               # Modern UI
+│   └── src/                  # React + Vite + Tailwind Frontend
+│
+├── data/                     # Persistent local databases (SQLite/FAISS)
+├── docker-compose.yml        # Container orchestration
+└── requirements.txt          # Python dependencies
 ```
 
 ---
 
-## ▶️ Run Backend
+## 🚀 Installation & Setup
 
+### 1. Clone the Repository
+```bash
+git clone https://github.com/Shikher-jain/SAHAYAK_AI.git
+cd SAHAYAK_AI
+```
+
+### 2. Environment Setup (Backend)
+Create an isolated Python environment and install the required dependencies:
+```bash
+python -m venv venv
+
+# Windows:
+.\venv\Scripts\activate
+
+# Linux/Mac:
+source venv/bin/activate
+
+pip install -r requirements.txt
+```
+
+### 3. Environment Variables
+Create a `.env` file in the project root:
+```env
+# Vector DB Configuration
+QDRANT_URL=your_qdrant_url
+QDRANT_API_KEY=your_qdrant_api_key
+QDRANT_COLLECTION=sahayak
+
+# LLM Configurations
+OPENAI_API_KEY=your_openai_api_key
+
+# Security
+JWT_SECRET_KEY=your_super_secret_key
+ALLOWED_ORIGINS=http://localhost:5173,http://localhost:8501
+```
+
+### 4. Running the Application
+
+**Backend API:**
 ```bash
 uvicorn backend.main:app --reload --port 8000
 ```
 
----
-
-## ▶️ Run Frontends
-
-You can use either (or both) of the supported frontend applications:
-
-### Option A: React Frontend (Modern UI)
-
+**Frontend (React):**
 ```bash
 cd sahayak-ui
 npm install
 npm run dev
 ```
 
-### Option B: Streamlit Frontend (Classic UI)
-
+**Frontend (Streamlit):**
 ```bash
 streamlit run frontend/app.py
 ```
 
----
-
-## 🔑 Environment Variables
-
-Create a `.env` file in the project root:
-
-```env
-QDRANT_URL=your_qdrant_url
-QDRANT_API_KEY=your_qdrant_api_key
-QDRANT_COLLECTION=sahayak
-
-GROQ_API_KEY=your_groq_api_key
-
-JWT_SECRET_KEY=your_secret_key
-```
+*(Alternatively, deploy the full stack using Docker: `docker compose up --build`)*
 
 ---
 
-## 🌐 API Routes
+## 🌐 API Endpoints Summary
 
 | Endpoint           | Description                         |
 | ------------------ | ----------------------------------- |

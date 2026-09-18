@@ -15,6 +15,9 @@ import { Stories } from './pages/Stories';
 import { Pricing } from './pages/Pricing';
 import { LearnHub } from './pages/LearnHub';
 import { SettingsPage } from './pages/SettingsPage';
+import { Help } from './pages/Help';
+import { Sync } from './pages/Sync';
+import { Contact } from './pages/Contact';
 
 function AppContent() {
   const { authToken, currentPage } = useAppContext();
@@ -52,6 +55,12 @@ function AppContent() {
         return <LearnHub />;
       case 'settings':
         return <SettingsPage />;
+      case 'help':
+        return <Help />;
+      case 'sync':
+        return <Sync />;
+      case 'contact':
+        return <Contact />;
       default:
         return <Dashboard />;
     }

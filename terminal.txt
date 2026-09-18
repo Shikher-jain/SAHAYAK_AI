@@ -1,0 +1,24 @@
+Here's the breakdown:
+
+1. frontend/ — Legacy Streamlit App
+- Stack: Python Streamlit
+- Pages: 19 (Dashboard, Upload, Search, Chat, Quiz, Roadmaps, Books, Counselor, KG, Progress, etc.)
+- Deployed: via Docker (docker-co   mpose.yml) on port 8501
+- Status: The original "Classic UI". Contains an orphaned React skeleton in src/ that's dead (no entry point, no config)
+- Also has: pages/login.py auth gate
+
+2. sahayak-ui/ — Modern React SPA (Production)
+- Stack: React 19 + Vite 8 + Tailwind 3
+- Pages: 17 (AuthPage + 16 routed screens — same features as the Streamlit app)
+- Deployed: Root render.yaml + vercel.json
+- Status: The actual deployed frontend. Full feature parity with the Streamlit app, reimplemented in React
+- Docs: Explicitly mentioned in root README.md
+
+3. sahayak_ai_v3/frontend/ — v3 Chat-Only SPA
+- Stack: React 18 + Vite 5 + Tailwind 3
+- Pages: 1 — just ChatInterface
+- Deployed: Separate sahayak_ai_v3/render.yaml
+- Status: Mid-refactor, currently broken — imports from ../api/v2_client which doesn't exist. Only a chat surface for the experimental v2_advanced (CRAG/GraphRAG) pipeline
+- Not mentioned in root README
+
+TL;DR: frontend/ = legacy Streamlit, sahayak-ui/ = the real production React app, sahayak_ai_v3/frontend/ = incomplete broken chat widget for the v3 pipeline.

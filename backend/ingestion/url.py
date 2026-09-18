@@ -50,15 +50,31 @@ def validate_public_url(url: str) -> str:
     return parsed.geturl()
 
 
+import time
+
+DEFAULT_HEADERS = {"User-Agent": "Mozilla/5.0 (compatible; Sahayak/1.0)"}
+
 def fetch_url_text(url: str) -> str:
     safe_url = validate_public_url(url)
-    response = requests.get(
-        safe_url,
-        timeout=300,
-        headers={"User-Agent": "SahayakAI/1.0 (+https://example.local)"},
-        allow_redirects=True,
-    )
-    response.raise_for_status()
+    max_retries = 3
+    
+    for attempt in range(max_retries + 1):
+        try:
+            response = requests.get(
+                safe_url,
+                timeout=60,
+                headers=DEFAULT_HEADERS,
+                allow_redirects=True,
+            )
+            response.raise_for_status()
+            break
+        except requests.exceptions.HTTPError as e:
+            if e.response is not None and e.response.status_code in {429, 503}:
+                if attempt < max_retries:
+                    time.sleep(2 ** attempt)
+                    continue
+            raise
+
     soup = BeautifulSoup(response.text, "html.parser")
     for script in soup(["script", "style"]):
         script.extract()

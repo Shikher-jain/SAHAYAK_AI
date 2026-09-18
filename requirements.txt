@@ -1,80 +1,32 @@
---extra-index-url https://download.pytorch.org/whl/cpu
+# ==========================================
+# Sahayak AI - v2_advanced (Render Free Tier)
+# ==========================================
 
-# Backend & Web Framework
-fastapi
-uvicorn[standard]
-python-dotenv
-pydantic
-slowapi
-python-multipart
+# Core API & Server
+fastapi==0.110.0
+uvicorn==0.29.0
+pydantic==2.9.2
+pydantic-settings==2.5.2
+python-multipart==0.0.9
+qrcode==7.4.2
 
-# Core ML / NLP / Embeddings
-sentence-transformers
-sentencepiece
-langdetect
+# Async Network & Webhooks
+httpx==0.27.2
 
-# RAG & LLM Providers
-langchain==0.0.350
-langchain-community==0.0.20
-openai
-groq
+# Multi-Agent Orchestration (Zero-Local Compute)
+langgraph==0.2.16
+langchain-core==0.3.5
+langchain-groq==0.2.0
 
-# Vector Databases
-qdrant-client
-faiss-cpu
+# Serverless Vector & Graph Databases
+qdrant-client>=1.7.0
+pytest>=8.0.0
+pytest-asyncio>=0.23.0
+pytest-mock>=3.12.0
+asyncpg>=0.29.0
+upstash-redis>=1.1.0
+neo4j==5.25.0
+upstash-vector==0.6.0
 
-# Database, Auth & Security
-sqlalchemy
-psycopg2-binary
-python-jose[cryptography]
-passlib[bcrypt]
-bcrypt
-
-# Data Processing & Analysis
-numpy<2.0
-pandas
-openpyxl
-scikit-learn
-networkx
-
-# Document Processing & Extraction
-pytesseract
-pdfplumber
-PyMuPDF
-fpdf
-reportlab
-
-# Audio, Speech & Transcripts (SDKs & Utilities)
-openai-whisper
-assemblyai
-deepgram-sdk
-elevenlabs
-sarvamai
-gTTS
-youtube_transcript_api
-yt-dlp
-
-# Media & Image Processing
-moviepy
-Pillow
-
-# Web, HTTP & Networking
-requests
-httpx
-beautifulsoup4
-
-# General Utilities
-python-dateutil
-tqdm
-
-# Streamlit Frontend (Legacy / Internal UI)
-streamlit
-streamlit-option-menu
-streamlit-extras
-plotly
-altair
-
-# Fine-tuning & Acceleration (Optional)
-peft
-bitsandbytes
-accelerate
+# Audio & UX
+edge-tts==0.14.3

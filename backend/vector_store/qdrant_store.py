@@ -102,17 +102,27 @@ class QdrantStore:
             for point_id, metadata, text in zip(ids, metadatas, texts)
         ]
 
-    def search(self, embedding: np.ndarray, top_k: int = 5) -> List[Dict[str, Any]]:
+    def search(self, embedding: np.ndarray, top_k: int = 5, filters: Optional[Dict[str, Any]] = None) -> List[Dict[str, Any]]:
         """Search for similar vectors using the current Qdrant API (query_points)."""
         if not self._client:
             raise RuntimeError("Qdrant client is not available")
         vector = embedding.tolist() if isinstance(embedding, np.ndarray) else embedding
+        
+        query_filter = None
+        if filters:
+            must_conditions = []
+            for k, v in filters.items():
+                must_conditions.append(qmodels.FieldCondition(key=k, match=qmodels.MatchValue(value=v)))
+            if must_conditions:
+                query_filter = qmodels.Filter(must=must_conditions)
+                
         # qdrant-client 1.7+ replaced .search() with .query_points()
         response = self._client.query_points(
             collection_name=self.collection_name,
             query=vector,
             limit=top_k,
             with_payload=True,
+            query_filter=query_filter,
         )
         # QueryResponse.points is List[ScoredPoint] — each has .id, .score, .payload
         hits: List[Dict[str, Any]] = []

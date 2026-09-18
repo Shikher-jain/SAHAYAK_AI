@@ -1,100 +1,114 @@
 # AGENTS.md
 
-Agent instructions for contributors and coding agents working in this repository.
+**Repository Operating Rules and Multi-Agent Architecture for Sahayak AI**
 
-## Purpose
+This document serves a dual purpose:
+1. It defines the **Multi-Agent Architecture** (the runtime agents operating within the LangGraph CRAG loop).
+2. It sets the **Repository Operating Rules** for AI Coding Assistants (Cursor, Windsurf, Copilot, Devin, Antigravity) to ensure automated code changes never violate system constraints.
 
-Sahayak AI is a Python-first, full-stack learning platform:
-- Backend: FastAPI app with multimodal ingestion + RAG services
-- Frontend: Streamlit app calling backend REST endpoints
-- Infra: Docker Compose with Qdrant + backend + frontend
+---
 
-Reference docs:
-- Project overview and feature list: [README.md](README.md)
-- Container wiring: [docker-compose.yml](docker-compose.yml)
+## Part 1: System Architecture & Agent Topology
 
-## Fast Start Commands
+Sahayak AI utilizes a multi-agent graph orchestrated via LangGraph, running a highly optimized Multimodal Hybrid CRAG (Corrective RAG) + GraphRAG pipeline.
 
-From repo root:
+### 1. Router / Query Understanding Agent
+- **Responsibilities:** Modality classification (text, image, audio, video), entity recognition, and query decomposition.
+- **Behavior:** Parses the incoming query to determine which retrieval pipelines to activate and whether the query requires complex multi-hop graph traversal.
 
-```powershell
-python -m venv venv
-.\venv\Scripts\activate
-pip install -r requirements.txt -r requirements-dev.txt
+### 2. Retrieval Coordination Node
+- **Responsibilities:** Manages parallel async dispatch across multiple retrieval systems.
+- **Data Sources:** 
+  - **Dense:** Qdrant Cloud (Vector search)
+  - **Sparse:** BM25 (Keyword search)
+  - **Graph:** Neo4j AuraDB (Relationship traversal)
+- **Aggregation:** Merges results from all pipelines using Reciprocal Rank Fusion (RRF).
+
+### 3. Reranker Integration
+- **Responsibilities:** Refines the initial candidate pool (Top 30-100 chunks) to the most relevant top 10-20 matches.
+- **Specification:** Sends the candidate pool to the Hugging Face Serverless Inference API running `BAAI/bge-reranker-base`.
+
+### 4. Relevance Grader Agent (CRAG)
+- **Responsibilities:** Evaluates query-document alignment using a fast LLM-as-a-judge.
+- **Threshold Logic:**
+  - **High Confidence (>= 0.85):** Proceed directly to synthesis.
+  - **Ambiguous (0.60 <= Confidence < 0.85):** Trigger Query Rewriter + Graph multi-hop retrieval.
+  - **Low Confidence (< 0.60):** Trigger External Fallback Search (e.g., Tavily/DDG API).
+
+### 5. Context Engine & Synthesizer Agent
+- **Responsibilities:** Prepares the final payload for the LLM. 
+- **Tasks:** Context deduplication, parent-child chunk expansion, token budget packing, and grounded generation with strict citation markers.
+
+### 6. Faithfulness / Grounding Checker Agent
+- **Responsibilities:** A post-generation LLM-as-a-judge node that verifies whether output claims are 100% supported by the retrieved evidence before dispatching the response to the client.
+
+---
+
+## Part 2: Agent State Schema (LangGraph Contract)
+
+All nodes in the CRAG loop communicate via a shared typed state (`CRAGState`) defined in `sahayak_ai_v3/backend/core/graph_state.py`. Do NOT rename or restructure these fields — every node reads and writes through them:
+
+```python
+class CRAGState(TypedDict):
+    # Query Understanding
+    original_query: str
+    active_query: str                 # current query (original or rewritten)
+    intent: Optional[str]
+    detected_modality: Optional[str]  # text | image | audio | video
+    extracted_entities: List[str]
+
+    # Retrieval & Reranking
+    candidate_pool: List[RetrievedDocument]  # top 30-100 after RRF (Qdrant + BM25 + Neo4j)
+    refined_pool: List[RetrievedDocument]    # top 10-20 after BAAI/bge-reranker-base
+
+    # CRAG Grading
+    relevance_score: Optional[float]
+    confidence_category: Optional[str]       # "GOOD" (>=0.85) | "PARTIAL" (0.60-0.84) | "BAD" (<0.60)
+
+    # Control Flow (prevents infinite LangGraph loops)
+    rewrite_count: int                       # capped by MAX_RETRIEVAL_ATTEMPTS
+    web_search_invoked: bool
+
+    # Context Engine
+    compressed_context: Optional[str]
+
+    # Generation & Faithfulness
+    draft_response: Optional[str]
+    is_faithful: Optional[bool]
+    final_response: Optional[str]
+
+    # Metadata
+    filters: Optional[Dict[str, Any]]
+    sources: Optional[List[Dict[str, str]]]
+    learning_mode: Optional[str]
+    user_mode: Optional[str]
 ```
 
-Run backend:
+Tune loop ceilings via `config.settings.MAX_RETRIEVAL_ATTEMPTS` (default 2) — never via a new counter in state.
 
-```powershell
-uvicorn backend.main:app --reload --port 8000
-```
+---
 
-Run frontend:
+## Part 3: Non-Negotiable Rules for AI Coding Agents
 
-```powershell
-streamlit run frontend/app.py
-```
+**ATTENTION ALL AI CODING ASSISTANTS:** You must strictly obey the following rules when modifying this repository.
 
-Run tests:
+### Rule 1: Memory Guardrail (Zero Local Heavy Compute)
+**Context:** This application is deployed on a Render Free Tier (~512MB RAM constraint).
+- **Requirement:** You MUST reject any PR, code snippet, or plan that introduces `import torch`, `sentence_transformers`, or local heavy model initializations. 
+- **Enforcement:** All heavy compute (Whisper, OCR, Vectors, LLMs, Reranking) MUST be offloaded to managed APIs (Groq, Hugging Face Inference API, Gemini, Qdrant Cloud, Neo4j AuraDB). Use lightweight async HTTP clients (`httpx`, `aiohttp`).
 
-```powershell
-pytest backend/tests -q
-```
+### Rule 2: Pipeline Isolation & Backward Compatibility
+- **Requirement:** Legacy routes (`/api/v1/...` and existing `backend/`) MUST remain intact. Never delete or break existing flows.
+- **Enforcement:** All new v2/v3 features are housed in `sahayak_ai_v3/` and are conditionally loaded via `config.settings.SAHAYAK_PIPELINE_VERSION` (e.g., `legacy` vs `v2_advanced`).
 
-Docker stack:
+### Rule 3: Canonical Schema Adherence
+- **Requirement:** All multimodal ingestion modules must output to the unified canonical chunk schema.
+- **Enforcement:** Document chunks must map to standard fields (`chunk_id`, `document_id`, `modality`, `bbox`, `entities`, `content`, `metadata`).
 
-```powershell
-docker compose up --build
-```
+### Rule 4: Error Handling & Rate Limits
+- **Requirement:** The system relies entirely on external APIs, meaning network failures and rate limits are guaranteed.
+- **Enforcement:** All external API calls (Groq, Hugging Face, Qdrant Cloud, Neo4j) MUST include backoff retries and graceful degradation fallbacks. If the Reranker fails, fall back to the initial RRF scores. If Graph search fails, fall back to Dense search.
 
-## Architecture Boundaries
-
-- API entrypoint: `backend/main.py`
-- HTTP routers: `backend/routers/`
-- Domain/service logic: `backend/services/`
-- Ingestion adapters by modality: `backend/ingestion/`
-- Auth system (JWT + DB models): `backend/auth_system/`
-- Shared utilities/config: `backend/common/`, `backend/utils/`
-- Streamlit UI entrypoint: `frontend/app.py`
-- Persistent runtime data: `data/`
-
-When adding new backend behavior:
-- Add/extend a router in `backend/routers/` for HTTP surface.
-- Keep modality/data processing in `backend/ingestion/` or `backend/services/`.
-- Reuse shared path helpers in `backend/common/data_paths.py` rather than hardcoded paths.
-
-## Environment and Security Expectations
-
-Create `.env` in repo root (see README for baseline keys). Commonly used variables include:
-- `QDRANT_URL`, `QDRANT_API_KEY`, `QDRANT_COLLECTION`
-- `GROQ_API_KEY`
-- `JWT_SECRET_KEY`
-- `ALLOWED_ORIGINS` (comma-separated; backend defaults to `http://localhost:8501`)
-- `SAHAYAK_API_KEY` (if set, ingestion/search calls require `X-API-Key`)
-- `AUTH_DATABASE_URL` (optional; defaults to SQLite under `data/auth/`)
-- `BACKEND_URL` (frontend -> backend target)
-
-Do not hardcode secrets in code or tests.
-
-## Repository-Specific Pitfalls
-
-- Auth behavior is environment-dependent: if `SAHAYAK_API_KEY` is unset, API key auth is bypassed by design (`backend/auth.py`).
-- CORS is intentionally restricted and credential-aware in `backend/main.py`; do not switch to wildcard origins with credentials.
-- Health endpoint may report degraded if DB/vector checks fail; validate `/health` after infra changes.
-- `package.json` exists but Node is not the primary runtime for app execution; prefer Python tooling unless task is explicitly Node-related.
-
-## Change Checklist for Agents
-
-Before submitting changes:
-- Run targeted tests in `backend/tests/` for touched functionality.
-- Smoke test backend startup: `uvicorn backend.main:app --reload --port 8000`.
-- If frontend/API contracts changed, run Streamlit app and verify key flows manually.
-- Prefer minimal, surgical edits; avoid unrelated refactors.
-
-## High-Value Files to Read First
-
-- `backend/main.py` (middleware, router wiring, health checks)
-- `backend/routers/ingestion.py` (multimodal endpoint patterns)
-- `backend/auth.py` and `backend/auth_system/database.py` (auth and DB setup)
-- `frontend/app.py` (UI state, backend calls, auth headers)
-- `requirements.txt` and `requirements-dev.txt` (runtime + test dependencies)
+### Rule 5: Reranker Specification
+- **Requirement:** The Reranker MUST be `BAAI/bge-reranker-base`.
+- **Enforcement:** It must ONLY be called via the Hugging Face Serverless Inference API (or equivalent external HTTP endpoint). NEVER download the local weights for this model.

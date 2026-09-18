@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { 
   Home, UploadCloud, Search, BookOpen, Settings, LogOut, Menu, X, Moon, Sun, 
   Bot, CheckSquare, Map, Book, Briefcase, BarChart, Heart, CreditCard, 
-  HelpCircle, Share2, Sparkles, Globe, ChevronDown, Check, Shield
+  HelpCircle, Share2, Sparkles, Globe, ChevronDown, Check, Shield, RefreshCcw, Phone
 } from 'lucide-react';
 
 import { useAppContext } from '../context/AppContext';
@@ -64,6 +64,9 @@ export const MainLayout = ({ children }) => {
         { id: 'progress', name: t('progress'), icon: BarChart },
         { id: 'stories', name: t('stories'), icon: Heart },
         { id: 'pricing', name: t('pricing'), icon: CreditCard },
+        { id: 'help', name: t('help'), icon: HelpCircle },
+        { id: 'sync', name: t('sync'), icon: RefreshCcw },
+        { id: 'contact', name: 'Contact', icon: Phone },
         { id: 'settings', name: t('settings'), icon: Settings },
       ]
     }

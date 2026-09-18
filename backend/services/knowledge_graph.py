@@ -23,9 +23,11 @@ def init_knowledge_db() -> None:
     conn.executescript("""
         CREATE TABLE IF NOT EXISTS entities (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
-            name TEXT UNIQUE NOT NULL,
+            name TEXT NOT NULL,
             entity_type TEXT DEFAULT 'concept',
-            description TEXT DEFAULT ''
+            description TEXT DEFAULT '',
+            user_id TEXT,
+            UNIQUE(name, user_id)
         );
         CREATE TABLE IF NOT EXISTS relationships (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -33,23 +35,30 @@ def init_knowledge_db() -> None:
             target TEXT NOT NULL,
             relation TEXT DEFAULT 'related_to',
             weight REAL DEFAULT 1.0,
-            FOREIGN KEY (source) REFERENCES entities(name),
-            FOREIGN KEY (target) REFERENCES entities(name)
+            user_id TEXT
         );
     """)
     conn.commit()
     conn.close()
 
+# Temporary hack to recreate if needed for this session since we changed schema
+try:
+    _conn = _get_conn()
+    _conn.execute("ALTER TABLE entities ADD COLUMN user_id TEXT")
+    _conn.execute("ALTER TABLE relationships ADD COLUMN user_id TEXT")
+    _conn.commit()
+except Exception:
+    pass
 
 init_knowledge_db()
 
 
-def add_entity(name: str, entity_type: str = "concept", description: str = "") -> int:
+def add_entity(name: str, entity_type: str = "concept", description: str = "", user_id: str | None = None) -> int:
     conn = _get_conn()
     try:
         cur = conn.execute(
-            "INSERT OR IGNORE INTO entities (name, entity_type, description) VALUES (?, ?, ?)",
-            (name, entity_type, description),
+            "INSERT OR IGNORE INTO entities (name, entity_type, description, user_id) VALUES (?, ?, ?, ?)",
+            (name, entity_type, description, user_id),
         )
         conn.commit()
         entity_id = cur.lastrowid
@@ -59,13 +68,13 @@ def add_entity(name: str, entity_type: str = "concept", description: str = "") -
     return entity_id
 
 
-def add_relationship(source: str, target: str, relation: str = "related_to", weight: float = 1.0) -> int:
-    add_entity(source)
-    add_entity(target)
+def add_relationship(source: str, target: str, relation: str = "related_to", weight: float = 1.0, user_id: str | None = None) -> int:
+    add_entity(source, user_id=user_id)
+    add_entity(target, user_id=user_id)
     conn = _get_conn()
     cur = conn.execute(
-        "INSERT INTO relationships (source, target, relation, weight) VALUES (?, ?, ?, ?)",
-        (source, target, relation, weight),
+        "INSERT INTO relationships (source, target, relation, weight, user_id) VALUES (?, ?, ?, ?, ?)",
+        (source, target, relation, weight, user_id),
     )
     conn.commit()
     rel_id = cur.lastrowid
@@ -73,11 +82,11 @@ def add_relationship(source: str, target: str, relation: str = "related_to", wei
     return rel_id
 
 
-def get_graph(limit: int = 200) -> Dict[str, Any]:
+def get_graph(limit: int = 200, user_id: str | None = None) -> Dict[str, Any]:
     """Return nodes and edges for visualization."""
     conn = _get_conn()
-    entities = conn.execute("SELECT name, entity_type, description FROM entities LIMIT ?", (limit,)).fetchall()
-    relationships = conn.execute("SELECT source, target, relation, weight FROM relationships LIMIT ?", (limit * 3,)).fetchall()
+    entities = conn.execute("SELECT name, entity_type, description FROM entities WHERE user_id = ? OR ? IS NULL LIMIT ?", (user_id, user_id, limit,)).fetchall()
+    relationships = conn.execute("SELECT source, target, relation, weight FROM relationships WHERE user_id = ? OR ? IS NULL LIMIT ?", (user_id, user_id, limit * 3,)).fetchall()
     conn.close()
     return {
         "nodes": [{"name": e["name"], "type": e["entity_type"], "description": e["description"]} for e in entities],
@@ -85,14 +94,14 @@ def get_graph(limit: int = 200) -> Dict[str, Any]:
     }
 
 
-def get_entity(name: str) -> Optional[Dict[str, Any]]:
+def get_entity(name: str, user_id: str | None = None) -> Optional[Dict[str, Any]]:
     conn = _get_conn()
-    entity = conn.execute("SELECT * FROM entities WHERE name = ?", (name,)).fetchone()
+    entity = conn.execute("SELECT * FROM entities WHERE name = ? AND (user_id = ? OR ? IS NULL)", (name, user_id, user_id)).fetchone()
     if not entity:
         conn.close()
         return None
     rels = conn.execute(
-        "SELECT * FROM relationships WHERE source = ? OR target = ?", (name, name)
+        "SELECT * FROM relationships WHERE (source = ? OR target = ?) AND (user_id = ? OR ? IS NULL)", (name, name, user_id, user_id)
     ).fetchall()
     conn.close()
     return {
@@ -103,10 +112,10 @@ def get_entity(name: str) -> Optional[Dict[str, Any]]:
     }
 
 
-def query_path(source: str, target: str) -> List[str]:
+def query_path(source: str, target: str, user_id: str | None = None) -> List[str]:
     """Simple BFS path finding between two entities."""
     conn = _get_conn()
-    edges = conn.execute("SELECT source, target FROM relationships").fetchall()
+    edges = conn.execute("SELECT source, target FROM relationships WHERE user_id = ? OR ? IS NULL", (user_id, user_id)).fetchall()
     conn.close()
     adj: Dict[str, List[str]] = {}
     for e in edges:
@@ -127,7 +136,7 @@ def query_path(source: str, target: str) -> List[str]:
     return []
 
 
-def extract_from_text(text: str) -> Dict[str, Any]:
+def extract_from_text(text: str, user_id: str | None = None) -> Dict[str, Any]:
     """Extract entities and relationships from text.
 
     Tries, in order: local NER model (only if ENABLE_LOCAL_ML_MODELS=true) ->
@@ -142,10 +151,10 @@ def extract_from_text(text: str) -> Dict[str, Any]:
             entities_raw = ner(text[:1000])
             entities_found = list(set(e["word"] for e in entities_raw if e["entity"].startswith("B-")))
             for entity in entities_found:
-                add_entity(entity, entity_type="named_entity")
+                add_entity(entity, entity_type="named_entity", user_id=user_id)
             for i in range(len(entities_found)):
                 for j in range(i + 1, min(i + 3, len(entities_found))):
-                    add_relationship(entities_found[i], entities_found[j], "co_occurs")
+                    add_relationship(entities_found[i], entities_found[j], "co_occurs", user_id=user_id)
             return {"entities": entities_found, "relationships": len(entities_found) * (len(entities_found) - 1) // 2}
     except Exception:
         pass
@@ -156,10 +165,10 @@ def extract_from_text(text: str) -> Dict[str, Any]:
         entities_found = hf_api_ner(text)
         if entities_found:
             for entity in entities_found:
-                add_entity(entity, entity_type="named_entity")
+                add_entity(entity, entity_type="named_entity", user_id=user_id)
             for i in range(len(entities_found)):
                 for j in range(i + 1, min(i + 3, len(entities_found))):
-                    add_relationship(entities_found[i], entities_found[j], "co_occurs")
+                    add_relationship(entities_found[i], entities_found[j], "co_occurs", user_id=user_id)
             return {"entities": entities_found, "relationships": len(entities_found) * (len(entities_found) - 1) // 2}
     except Exception:
         pass
@@ -183,10 +192,10 @@ def extract_from_text(text: str) -> Dict[str, Any]:
             entities_found = [e.strip() for e in parsed.get("entities", []) if e.strip()][:20]
             if entities_found:
                 for entity in entities_found:
-                    add_entity(entity, entity_type="named_entity")
+                    add_entity(entity, entity_type="named_entity", user_id=user_id)
                 for i in range(len(entities_found)):
                     for j in range(i + 1, min(i + 3, len(entities_found))):
-                        add_relationship(entities_found[i], entities_found[j], "co_occurs")
+                        add_relationship(entities_found[i], entities_found[j], "co_occurs", user_id=user_id)
                 return {"entities": entities_found, "relationships": len(entities_found) * (len(entities_found) - 1) // 2}
     except Exception:
         pass
@@ -195,5 +204,5 @@ def extract_from_text(text: str) -> Dict[str, Any]:
     words = [w.strip(".,;:!?") for w in text.split() if len(w) > 4 and w[0].isupper()]
     unique_words = list(set(words))[:20]
     for word in unique_words:
-        add_entity(word, entity_type="concept")
+        add_entity(word, entity_type="concept", user_id=user_id)
     return {"entities": unique_words, "relationships": 0}

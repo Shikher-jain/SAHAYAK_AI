@@ -33,12 +33,18 @@ class DuplicateDetector:
         if not new_text.strip():
             return []
         query_vec = embed_text(new_text)
-        candidates = vector_service.search_vectors(new_text, top_k=top_k, target=self.target)
+        candidates: List[Dict[str, str]] = []
+        if vector_service._use_qdrant(self.target):
+            candidates.extend(vector_service._search_qdrant(query_vec, top_k))
+        elif vector_service._use_local(self.target):
+            candidates.extend(vector_service._search_local(query_vec, top_k))
+            
         duplicates: List[Dict[str, str]] = []
         for candidate in candidates:
             content = candidate.get("content", "")
             if not content:
                 continue
+            # Use candidate vector directly from metadata if possible, else re-embed
             candidate_vec = embed_text(content)
             similarity = self._cosine(query_vec, candidate_vec)
             if similarity >= self.threshold:

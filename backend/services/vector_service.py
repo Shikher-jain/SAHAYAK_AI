@@ -193,34 +193,17 @@ def _ingest_local(text: str, metadata: Dict[str, Any], embedding: np.ndarray | N
     return {"backend": "local", "metadata": metadata, "content": text}
 
 
-def search_vectors(query: str, top_k: int = 5, target: str = "auto") -> List[Dict[str, str]]:
-    results: List[Dict[str, str]] = []
-    query_embedding = embed_text(query)
+async def search_vectors(query: str, top_k: int = 5, target: str = "auto", filters: Optional[Dict[str, Any]] = None) -> List[Dict[str, str]]:
+    from sahayak_ai_v3.backend.services.retrieval.v3_orchestrator import v3_retrieve_fused
+    
     # TASK 24: reuse cached search results for identical queries.
     cache_key = f"{query.strip().lower()}|{top_k}|{target}"
-    # NOTE: search results are not cached because they may change after ingestion.
-    qdrant_mode = _use_qdrant(target)
-    local_mode = _use_local(target)
-
-    if qdrant_mode:
-        try:
-            results.extend(_search_qdrant(query_embedding, top_k))
-        except Exception as exc:
-            logger.warning("Qdrant search failed, falling back to local store: %s", exc)
-            if target == "qdrant":
-                raise
-            local_mode = True
-
-    if local_mode:
-        results.extend(_search_local(query_embedding, top_k))
-    # Deduplicate by id while keeping highest score
-    deduped: Dict[str, Dict[str, str]] = {}
-    for item in results:
-        key = item.get("id") or f"local-{len(deduped)}"
-        if key not in deduped or item.get("score", 0) > deduped[key].get("score", 0):
-            deduped[key] = item
-    sorted_hits = sorted(deduped.values(), key=lambda r: r.get("score", 0), reverse=True)
-    sanitized_hits = [_sanitize_record(hit) for hit in sorted_hits[:top_k]]
+    
+    results = await v3_retrieve_fused(query, top_k=top_k, target=target, filters=filters)
+    
+    # The v3 orchestrator handles dedup, fusion, and reranking.
+    # We just need to sanitize hits for legacy support
+    sanitized_hits = [_sanitize_record(hit) for hit in results]
     return sanitized_hits
 
 
@@ -281,13 +264,14 @@ def _citations_from_hits(hits: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     return citations
 
 
-def rag_answer(
+async def rag_answer(
     query: str,
     top_k: int = 5,
     target: str = "auto",
     session_id: str | None = None,
     learning_mode: str = "student",
     user_mode: str | None = None,
+    filters: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
     # Resolve user_mode from modes.py
     resolved_user_mode = resolve_mode(user_mode)
@@ -303,12 +287,18 @@ def rag_answer(
     english_query = translate_to_english(query, query_lang)
     # TASK 1: rewrite query before embedding/retrieval.
     rewritten_query = rewrite_query(english_query)
-    from backend.rag.retriever import retrieve
-    hits = retrieve(rewritten_query, top_k=top_k, target=target)
-    # hits = search_vectors(rewritten_query, top_k=top_k, target=target)
-    context = "\n\n".join(hit.get("content", "") for hit in hits if hit.get("content"))
-    sanitized_context = _sanitize_output(context)
+    
+    from sahayak_ai_v3.backend.services.retrieval.v3_orchestrator import v3_rag_answer
+    v3_result = await v3_rag_answer(
+        rewritten_query, 
+        filters=filters,
+        learning_mode=learning_mode,
+        user_mode=resolved_user_mode
+    )
+    
+    sanitized_context = _sanitize_output(v3_result.get("context", ""))
     sanitized_query = _sanitize_output(english_query)
+    
     if not sanitized_context:
         return {
             "answer": translate_from_english("No context available yet. Please ingest content first.", query_lang),
@@ -318,24 +308,15 @@ def rag_answer(
             "session_id": session_id,
         }
 
-    # Retrieve conversation history (passed to generator separately, not merged into context).
+    # Retrieve conversation history
     conversation_history = ""
     if session_id:
         conversation_history = _conversation_manager.get_history(session_id)
 
-    citations = _citations_from_hits(hits)
-    generation = _qa_generator.generate_answer(
-        sanitized_context,
-        sanitized_query,
-        sources=citations,
-        learning_mode=learning_mode,
-        conversation_history=conversation_history,
-        user_mode=resolved_user_mode,
-    )
-    answer_text = _sanitize_output(str(generation.get("answer", "")))
+    answer_text = _sanitize_output(str(v3_result.get("answer", "")))
     if query_lang != "en":
         answer_text = translate_from_english(answer_text, query_lang)
-    formatted_sources = generation.get("sources") or []
+    formatted_sources = v3_result.get("sources") or []
 
     if session_id and answer_text:
         _conversation_manager.add_exchange(session_id, sanitized_query, answer_text)
@@ -343,20 +324,26 @@ def rag_answer(
     # Structured recommendations from generator + vector-based recommendations.
     recommender = Recommender(target=target)
     vector_recs = recommender.recommend(rewritten_query, top_k=min(3, top_k))
-    llm_recs = generation.get("recommendations") or []
-    # Merge: LLM recommendations first (topic-level), then vector recs (document-level).
+    llm_recs = []  # We could extract this if needed
     all_recs = llm_recs + vector_recs
+
+    # Extract follow-ups from the answer text
+    follow_ups = _qa_generator._extract_follow_ups(_qa_generator._extract_section(answer_text, "Follow-up"))
+    if not follow_ups:
+        follow_ups = _qa_generator._extract_follow_ups(_qa_generator._extract_section(answer_text, "❓"))
 
     result = {
         "answer": answer_text,
         "sources": formatted_sources,
         "context": sanitized_context,
         "recommendations": all_recs,
-        "follow_ups": generation.get("follow_ups") or [],
+        "follow_ups": follow_ups,
         "session_id": session_id,
         "learning_mode": learning_mode,
         "user_mode": resolved_user_mode,
         "ui_hints": get_ui_hints(resolved_user_mode),
+        "is_faithful": v3_result.get("is_faithful", True),
+        "debug_info": v3_result.get("debug_info", {})
     }
     # TASK 24: store in LRU cache (only for non-conversational queries).
     if cache_key:

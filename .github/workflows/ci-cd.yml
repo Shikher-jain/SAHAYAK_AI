@@ -1,0 +1,49 @@
+name: Sahayak AI v2_advanced CI/CD
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+
+jobs:
+  test-and-lint:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Setup Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install Dependencies
+        run: |
+          pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pytest pytest-asyncio pytest-mock flake8 black
+
+      - name: Code Formatting Check (Black)
+        run: |
+          black --check sahayak_ai_v3/ tests/
+
+      - name: Linting (Flake8)
+        run: |
+          flake8 sahayak_ai_v3/ tests/ --max-line-length=100
+
+      - name: Run Test Suite (Pytest)
+        run: |
+          pytest tests/ sahayak_ai_v3/tests/ -v
+
+  deploy-to-render:
+    needs: test-and-lint
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    steps:
+      - name: Trigger Render Deploy Hook
+        run: |
+          curl -X POST "${{ secrets.RENDER_DEPLOY_HOOK_URL }}"

@@ -9,7 +9,7 @@ import { Modal } from '../components/ui/Modal';
 import { Input } from '../components/ui/Input';
 
 export const Pricing = () => {
-  const { showSuccess, authUser } = useAppContext();
+  const { showSuccess, showError, authUser } = useAppContext();
 
   const [annualBilling, setAnnualBilling] = useState(true);
   const [selectedPlan, setSelectedPlan] = useState(null);
@@ -86,6 +86,19 @@ export const Pricing = () => {
     }
     setSubmittingDemo(false);
     setSelectedPlan(null);
+  };
+
+  const handleAddToCart = async (plan) => {
+    const { ok, error } = await callBackend('post', '/commerce/cart/add', {
+      item_id: plan.id,
+      quantity: 1,
+      price: annualBilling ? plan.priceYearly : plan.priceMonthly
+    });
+    if (ok) {
+      showSuccess(`${plan.name} added to your cart!`);
+    } else {
+      showError(error || 'Failed to add to cart');
+    }
   };
 
   return (
@@ -183,7 +196,14 @@ export const Pricing = () => {
                   variant={plan.popular ? 'primary' : 'outline'}
                   size="lg"
                   className="w-full font-bold"
-                  onClick={() => setSelectedPlan(plan)}
+                  onClick={() => {
+                    if (price === 0) return; // Do nothing for Free plan
+                    if (plan.popular) {
+                      handleAddToCart(plan);
+                    } else {
+                      setSelectedPlan(plan);
+                    }
+                  }}
                 >
                   {price === 0 ? 'Current Plan' : plan.popular ? 'Upgrade to Pro' : 'Contact Institutional Sales'}
                 </Button>

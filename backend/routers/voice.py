@@ -59,7 +59,7 @@ async def voice_query(audio_file: UploadFile = File(...), session_id: Optional[s
         transcribed_text = whisper_transcribe(audio_bytes)
 
         # 2. RAG query via the unified vector service
-        rag_response = vector_service.rag_answer(
+        rag_response = await vector_service.rag_answer(
             query=transcribed_text,
             top_k=5,
             session_id=session_id,

@@ -1,58 +1,52 @@
-# Render Blueprint — deploys the Sahayak AI backend on Render's free tier.
-#
-# Usage: push this repo to GitHub, then in Render: New -> Blueprint -> select
-# this repo. Render reads this file and provisions the service automatically.
-#
-# IMPORTANT — env vars marked `sync: false` must be set manually in the
-# Render dashboard after the first deploy (secrets aren't committed to git):
-#   GROQ_API_KEY            — https://console.groq.com (free tier)
-#   HUGGINGFACEHUB_API_TOKEN — https://huggingface.co/settings/tokens (free tier)
-#   QDRANT_URL               — https://cloud.qdrant.io free cluster URL (optional;
-#                              falls back to local FAISS if unset/unreachable)
-#   QDRANT_API_KEY           — from the same Qdrant Cloud cluster
-#   JWT_SECRET_KEY            — generate with: openssl rand -hex 32
-#   AUTH_DATABASE_URL         — free Postgres from Neon (optional; falls
-#                              back to SQLite, which will NOT persist across
-#                              redeploys on Render's free tier)
-#   ALLOWED_ORIGINS           — your deployed frontend URL, once you have one
-#
-# NOTE ON THE FREE TIER: Render's free web services spin down after 15
-# minutes of inactivity and cold-start on the next request (expect the
-# first request after idle to take noticeably longer). This is a Render
-# platform limitation, not something this app can work around.
-
 services:
+  # 1. React Frontend (Free Static Site)
+  - type: static_site
+    name: sahayak-frontend
+    env: static
+    # Assuming Vite. Change to 'npm run build' and 'build' if using Create React App.
+    buildCommand: cd sahayak-ui && npm install && npm run build
+    staticPublishPath: sahayak-ui/dist 
+    routes:
+      # Prevents 404 errors on page refreshes by routing everything to React
+      - type: rewrite
+        source: /*
+        destination: /index.html
+    envVars:
+      # Automatically links the deployed backend URL to your frontend
+      - key: VITE_API_BASE_URL
+        fromService:
+          type: web
+          name: sahayak-backend
+          envVarKey: RENDER_EXTERNAL_URL
+
+  # 2. FastAPI Backend (Free Tier Web Service)
   - type: web
     name: sahayak-backend
-    runtime: docker
-    dockerfilePath: ./backend/Dockerfile
-    dockerContext: .
+    env: python
     plan: free
-    healthCheckPath: /health
+    buildCommand: pip install -r requirements.txt
+    # CRITICAL: --workers 1 ensures you do not exceed the 512MB RAM limit
+    startCommand: uvicorn sahayak_ai_v3.backend.api.main:app --host 0.0.0.0 --port $PORT --workers 1
+    healthCheckPath: /
     envVars:
-      - key: ENABLE_LOCAL_ML_MODELS
-        value: "false"   # keep false on free tier — see backend/common/hf_models.py
-      - key: GROQ_MODEL
-        value: "llama-3.1-8b-instant"
-      - key: EMBEDDING_MODEL
-        value: "all-MiniLM-L6-v2"
-      - key: QDRANT_COLLECTION
-        value: "sahayak_ai_vectors"
-      - key: QDRANT_VECTOR_DIM
-        value: "384"
-      - key: JWT_EXPIRE_MINUTES
-        value: "1440"
+      - key: SAHAYAK_PIPELINE_VERSION
+        value: v2_advanced
+      - key: PYTHON_VERSION
+        value: 3.11.0 # Specify Python version to prevent build inconsistencies
+      
+      # The following are explicitly set to NOT sync. 
+      # You must paste the actual values in the Render Dashboard securely.
       - key: GROQ_API_KEY
         sync: false
-      - key: HUGGINGFACEHUB_API_TOKEN
+      - key: TELEGRAM_BOT_TOKEN
         sync: false
-      - key: QDRANT_URL
+      - key: TELEGRAM_WEBHOOK_SECRET
         sync: false
-      - key: QDRANT_API_KEY
+      - key: WHATSAPP_TOKEN
         sync: false
-      - key: JWT_SECRET_KEY
+      - key: WHATSAPP_VERIFY_TOKEN
         sync: false
-      - key: AUTH_DATABASE_URL
+      - key: UPSTASH_VECTOR_REST_URL
         sync: false
-      - key: ALLOWED_ORIGINS
+      - key: UPSTASH_VECTOR_REST_TOKEN
         sync: false

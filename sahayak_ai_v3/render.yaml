@@ -1,0 +1,87 @@
+services:
+  # ═══════════════════════════════════════════════════════════════════
+  # 1. React Frontend (Free Static Site)
+  # ═══════════════════════════════════════════════════════════════════
+  - type: static_site
+    name: sahayak-frontend
+    env: static
+    # Assumes Vite. If you ever switch to Create React App, change this to
+    # "build" and set staticPublishPath to "build".
+    buildCommand: npm install && npm run build
+    staticPublishPath: dist
+    routes:
+      # Prevents 404 errors on page refreshes by routing everything to React.
+      # Every path a user can bookmark (chat, voice, citations) hits index.html
+      # and lets the client router decide — never a Raw 404.
+      - type: rewrite
+        source: /*
+        destination: /index.html
+    envVars:
+      # Automatically links the deployed backend URL to your frontend.
+      # Render substitutes the backend web service's public URL at build time,
+      # so axios talks to the SAME origin in production (no manual domain).
+      - key: VITE_API_BASE_URL
+        fromService:
+          type: web
+          name: sahayak-backend
+          envVarKey: RENDER_EXTERNAL_URL
+
+  # ═══════════════════════════════════════════════════════════════════
+  # 2. FastAPI Backend (Free Tier Web Service)
+  # ═══════════════════════════════════════════════════════════════════
+  - type: web
+    name: sahayak-backend
+    env: python
+    plan: free
+    # Render free tier = 512 MB RAM. --workers 1 is NOT optional: uvicorn
+    # defaults to N workers = the number of CPU cores Render gives you, and on
+    # a 512 MB box that instantly OOMs during boot. Pinning it to 1 is what
+    # keeps the supervisor graph + edge-tts streaming inside the ceiling.
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn src.main:app --host 0.0.0.0 --port $PORT --workers 1
+    healthCheckPath: /api/v2/health/ping
+    envVars:
+      # Deployment tier — v2_advanced registers the supervisor + payments.
+      # (Same literal value the backend reads via SAHAYAK_PIPELINE_VERSION.)
+      - key: SAHAYAK_PIPELINE_VERSION
+        value: v2_advanced
+      - key: PYTHON_VERSION
+        value: "3.11.0" # Specify Python version to prevent build inconsistencies
+
+      # ── The remaining keys have `sync: false` because they're SECRETS.
+      #    You must paste them in the Render dashboard after deploy ("Environment"
+      #    tab → Add Secret File) — never `sync: true`, which would put your
+      #    live tokens in the public render.yaml that's likely in a PUBLIC repo.
+      - key: GROQ_API_KEY
+        sync: false
+      - key: HF_TOKEN
+        sync: false
+      - key: QDRANT_URL
+        sync: false
+      - key: QDRANT_API_KEY
+        sync: false
+      - key: NEO4J_URI
+        sync: false
+      - key: NEO4J_USER
+        sync: false
+      - key: NEO4J_PASSWORD
+        sync: false
+      # WhatsApp Cloud API (Meta) — voice + text replies
+      - key: WHATSAPP_TOKEN
+        sync: false
+      - key: WHATSAPP_VERIFY_TOKEN
+        sync: false
+      - key: WHATSAPP_PHONE_NUMBER_ID
+        sync: false
+      - key: WHATSAPP_APP_SECRET
+        sync: false
+      # Telegram
+      - key: TELEGRAM_BOT_TOKEN
+        sync: false
+      # Stripe payments (v2 tiering)
+      - key: STRIPE_SECRET_KEY
+        sync: false
+      - key: STRIPE_WEBHOOK_SECRET
+        sync: false
+      - key: STRIPE_PRICE_ID
+        sync: false

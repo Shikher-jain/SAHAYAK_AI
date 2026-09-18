@@ -18,8 +18,22 @@ class User(Base):
     role = Column(String(20), nullable=False, default="student")  # student | teacher | admin
     full_name = Column(String(128), default="")
     is_active = Column(Boolean, default=True)
+    tier = Column(String(20), nullable=False, default="free")  # free | pro
     created_at = Column(DateTime, default=datetime.datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.datetime.utcnow, onupdate=datetime.datetime.utcnow)
 
     def __repr__(self) -> str:
-        return f"<User id={self.id} username={self.username} role={self.role}>"
+        return f"<User id={self.id} username={self.username} role={self.role} tier={self.tier}>"
+
+class Order(Base):
+    __tablename__ = "orders"
+
+    id = Column(String(64), primary_key=True, index=True)
+    user_id = Column(Integer, index=True, nullable=False)
+    amount = Column(Integer, nullable=False)
+    status = Column(String(20), nullable=False, default="PENDING")
+    utr_number = Column(String(20), unique=True, nullable=True)
+    created_at = Column(DateTime, default=datetime.datetime.utcnow)
+    
+    def __repr__(self) -> str:
+        return f"<Order id={self.id} status={self.status}>"

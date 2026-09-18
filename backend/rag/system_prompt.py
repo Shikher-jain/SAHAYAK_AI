@@ -86,12 +86,13 @@ Response format rules:
 2. Use markdown headings (##, ###) for multi-part answers
 3. Use bullet points for lists and step-by-step breakdowns
 4. Include real-world examples where applicable
-5. End with:
+5. **CRITICAL**: You MUST cite your claims inline using bracketed indices (e.g., [1], [2]) corresponding to the provided context chunks.
+6. End with:
    - 📚 Sources (if context was used — list the source identifiers)
    - 💡 Recommendations (1-2 related topics or next steps)
    - ❓ Follow-up questions (2-3 questions to deepen understanding)
-6. Keep responses concise but thorough — avoid unnecessary filler
-7. If the context does not contain the answer, follow the STRICT RULE above — respond with "Out of Context". Do NOT fall back to general knowledge, even partially.
+7. Keep responses concise but thorough — avoid unnecessary filler
+8. If the context does not contain the answer, follow the STRICT RULE above — respond with "Out of Context". Do NOT fall back to general knowledge, even partially.
 """
 
 # ---------------------------------------------------------------------------

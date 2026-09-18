@@ -107,10 +107,23 @@ def _check_vector_backend() -> bool:
         return False
 
 
+def _check_tesseract() -> bool:
+    try:
+        import subprocess
+        result = subprocess.run(['tesseract', '--version'], capture_output=True, timeout=2)
+        return result.returncode == 0
+    except Exception:
+        return False
+
+
 @app.get("/health")
 def health():
     checks = {"auth_database": _check_auth_db(), "vector_backend": _check_vector_backend()}
     ok = all(checks.values())
+    
+    # Add informational checks that shouldn't fail the overall health status
+    checks["tesseract"] = _check_tesseract()
+    
     return JSONResponse(
         status_code=200 if ok else 503,
         content={"status": "healthy" if ok else "degraded", "checks": checks},

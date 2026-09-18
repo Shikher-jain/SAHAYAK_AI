@@ -1,0 +1,78 @@
+{
+  "meta": {
+    "tier_a_share": 0.6,
+    "tier_b_share": 0.25,
+    "tier_c_share": 0.15
+  },
+  "tier_a": {
+    "_comment": "5 canonical questions, each with 4 high-similarity paraphrases. All worded to AVOID the cache's crisis/personal bypass tokens so first seed = MISS, subsequent = HIT.",
+    "clusters": [
+      {
+        "q": "What is the refund and cancellation policy for passenger tickets?",
+        "v": [
+          "Can you explain how passenger ticket refunds and cancellations work?",
+          "How does the refund process apply to cancelled passenger tickets?",
+          "What happens to the fare when a passenger ticket is cancelled?",
+          "What are the terms for refunding and cancelling passenger tickets?"
+        ]
+      },
+      {
+        "q": "What documents are required to book a senior citizen concession ticket?",
+        "v": [
+          "Which documents do senior citizens need for a concession ticket booking?",
+          "What proof is needed to avail the senior citizen fare concession?",
+          "How can senior citizens submit the required documents for a concession ticket?",
+          "What paperwork is mandatory for the senior citizen concession on tickets?"
+        ]
+      },
+      {
+        "q": "How can a passenger change the journey date after booking?",
+        "v": [
+          "What is the process to reschedule the travel date on a booked ticket?",
+          "Are passengers allowed to modify the travel date after purchase?",
+          "How does the date-change option work for confirmed tickets?",
+          "Can the journey date be changed once the ticket is booked?"
+        ]
+      },
+      {
+        "q": "Which items are prohibited inside the waiting rooms?",
+        "v": [
+          "What luggage items are not allowed in the waiting rooms?",
+          "Are there restricted items for passengers in the waiting area?",
+          "What is banned inside the passenger waiting rooms?",
+          "Which objects cannot be carried into the waiting rooms?"
+        ]
+      },
+      {
+        "q": "How does the tatkal reservation quota work for trains?",
+        "v": [
+          "What is the tatkal quota and how does it apply to bookings?",
+          "How are tatkal tickets reserved on trains?",
+          "What are the rules for the tatkal reservation scheme?",
+          "Can passengers book under the tatkal quota for any train?"
+        ]
+      }
+    ]
+  },
+  "tier_b": {
+    "_comment": "High-entropy cold queries: {uuid}/{date} tokens are substituted at run time to guarantee MISS.",
+    "templates": [
+      "What is the current status of booking reference {uuid}?",
+      "Explain the fare difference for route {uuid} across dates {date}.",
+      "Which express trains on route {uuid} have rescheduled stops this week?"
+    ]
+  },
+  "tier_c": {
+    "_comment": "Safety/crisis + ephemeral-upload queries. Must NEVER return X-Cache-Status=HIT.",
+    "queries": [
+      "I feel depressed and need help right now",
+      "I want to kill myself please help",
+      "What is the suicide helpline number?",
+      "I am feeling very anxious about everything",
+      "Summarize my uploaded document",
+      "What does my uploaded file say about the report",
+      "help me find the cancellation terms",
+      "cancel my ticket now please"
+    ]
+  }
+}

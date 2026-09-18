@@ -1,0 +1,31 @@
+# v2_advanced runtime dependencies — INSTALL IN A SEPARATE VENV.
+#
+# Do NOT add these to the root requirements.txt: langgraph needs langchain-core>=0.2,
+# which hard-conflicts with the legacy pin langchain==0.0.350 (<langchain-core 0.2).
+#
+# Deploy / run this app from INSIDE the sahayak_ai_v3/ directory so `backend.*`
+# resolves to this package (same convention as backend/api/main.py):
+#   cd sahayak_ai_v3 && <venv>/python -m uvicorn backend.api.main:app
+# (Set SAHAYAK_PIPELINE_VERSION=v2_advanced to register the supervisor + payments.)
+langgraph>=0.2.0
+langchain-core>=0.3.0
+langchain-groq>=0.2.0
+stripe
+
+# WhatsApp webhook needs an async HTTP client + multipart form parsing.
+# Both are already in the shared runtime; pinned here so a fresh v3 install
+# never ships a webhook that dies on missing httpx.
+httpx>=0.27.0
+python-multipart>=0.0.9
+
+# v2 also reuses these from the shared runtime (already installed there):
+#   groq, aiohttp, pydantic, pydantic-settings, qdrant-client, rank-bm25,
+#   fastapi, uvicorn, python-multipart
+
+# ── v2 Audio replies: edge-tts (Microsoft neural TTS via cloud, zero local
+#    model load — same zero-RAM rule as whisper/groq). Needed by BOTH webhooks.
+edge-tts>=6.1.9
+
+# ── v2 Semantic Cache: Upstash Vector (serverless embeddings + vector search,
+#    zero local model). Keyed by backend/cache/semantic_cache.py.
+upstash-vector>=0.6.0

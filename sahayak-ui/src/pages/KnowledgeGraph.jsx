@@ -21,6 +21,24 @@ export const KnowledgeGraph = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
+  const [extractText, setExtractText] = useState('');
+  const [extracting, setExtracting] = useState(false);
+  const { showSuccess, showError } = useAppContext();
+
+  const handleExtract = async () => {
+    setExtracting(true);
+    const { ok, data, error: err } = await callBackend('post', '/knowledge/extract', { text: extractText });
+    if (ok && data) {
+      showSuccess(`Found ${data.entities?.length || 0} entities!`);
+      // Refresh the graph
+      fetchGraph();
+      setExtractText('');
+    } else {
+      showError(err || 'Failed to extract knowledge');
+    }
+    setExtracting(false);
+  };
+
   const fetchGraph = async () => {
     setLoading(true);
     setError(null);
@@ -96,6 +114,28 @@ export const KnowledgeGraph = () => {
           onRetry={fetchGraph}
         />
       )}
+
+      {/* Manual Extraction Section */}
+      <Card className="p-6">
+        <h3 className="text-lg font-bold text-slate-800 dark:text-slate-200 mb-2">Manual Knowledge Extraction</h3>
+        <p className="text-xs text-slate-500 mb-4">Extract entities and relationships from raw text directly into the graph.</p>
+        <div className="space-y-3">
+          <textarea
+            className="w-full p-4 rounded-xl text-xs bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+            rows={4}
+            placeholder="Paste text here to extract entities..."
+            value={extractText}
+            onChange={(e) => setExtractText(e.target.value)}
+          />
+          <Button 
+            onClick={handleExtract} 
+            loading={extracting} 
+            disabled={!extractText.trim()}
+          >
+            Extract Entities
+          </Button>
+        </div>
+      </Card>
 
       {/* Main Graph & Entity Detail layout */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">

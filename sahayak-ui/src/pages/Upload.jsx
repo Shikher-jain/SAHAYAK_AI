@@ -1,8 +1,10 @@
 import React, { useState, useRef } from 'react';
 import { 
   UploadCloud, FileText, Globe, AlignLeft, CheckCircle2, 
-  AlertCircle, X, ArrowRight, Layers, FileCode, Mic, MicOff, Square
+  AlertCircle, X, ArrowRight, Layers, FileCode, Mic, MicOff, Square, BookOpen, FilePlus
 } from 'lucide-react';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 
 import { useAppContext } from '../context/AppContext';
 import { callBackend } from '../api/client';
@@ -22,6 +24,10 @@ export const Upload = () => {
   const [loading, setLoading]           = useState(false);
   const [result, setResult]             = useState(null);
   const [isDragging, setIsDragging]     = useState(false);
+  
+  const [summary, setSummary]           = useState(null);
+  const [notes, setNotes]               = useState(null);
+  const [docLoading, setDocLoading]     = useState({ summary: false, notes: false });
   const fileInputRef = useRef(null);
 
   // ─── Audio recording state ─────────────────────────────────────────────────
@@ -107,9 +113,34 @@ export const Upload = () => {
     setAudioUrl(null);
   };
 
+  const handleGenerateSummary = async () => {
+    if (!result?.details?.document_id) return;
+    setDocLoading(prev => ({ ...prev, summary: true }));
+    const { ok, data, error } = await callBackend('post', '/document/summarize', { document_id: result.details.document_id });
+    if (ok && data) setSummary(data.summary);
+    else showError(error || 'Failed to generate summary');
+    setDocLoading(prev => ({ ...prev, summary: false }));
+  };
+
+  const handleGenerateNotes = async () => {
+    if (!result?.details?.document_id) return;
+    setDocLoading(prev => ({ ...prev, notes: true }));
+    // Wait, the API spec says `/document/notes` is a POST that expects query param `document_id`.
+    // Let's use `callBackend('post', '/document/notes', null, { params: { document_id: ... } })`
+    // Actually in Streamlit it was: `_call_backend("post", "/document/notes", params={"document_id": ingested_doc_id})`
+    // Wait, Axios `callBackend` signature is `(method, url, data, config)` typically. 
+    // I'll just append it to the URL query string to be safe.
+    const { ok, data, error } = await callBackend('post', `/document/notes?document_id=${result.details.document_id}`);
+    if (ok && data) setNotes(data.notes);
+    else showError(error || 'Failed to generate notes');
+    setDocLoading(prev => ({ ...prev, notes: false }));
+  };
+
   const handleIngest = async () => {
     setLoading(true);
     setResult(null);
+    setSummary(null);
+    setNotes(null);
 
     let ok = false;
     let data = null;
@@ -444,10 +475,54 @@ export const Upload = () => {
                     >
                       Ask Questions on this Ingestion
                     </Button>
+                    <Button
+                      size="sm"
+                      onClick={handleGenerateSummary}
+                      loading={docLoading.summary}
+                      icon={BookOpen}
+                      className="bg-indigo-600 hover:bg-indigo-700 text-white"
+                    >
+                      Summarize
+                    </Button>
+                    <Button
+                      size="sm"
+                      onClick={handleGenerateNotes}
+                      loading={docLoading.notes}
+                      icon={FilePlus}
+                      className="bg-amber-600 hover:bg-amber-700 text-white"
+                    >
+                      Generate Notes
+                    </Button>
                   </div>
                 )}
               </div>
             </div>
+
+            {/* Render Summary & Notes */}
+            {(summary || notes) && (
+              <div className="mt-4 pt-4 border-t border-slate-200/50 dark:border-slate-800/50 flex flex-col gap-4">
+                {summary && (
+                  <div className="p-4 bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-700">
+                    <h5 className="font-bold text-sm mb-2 flex items-center gap-2 text-indigo-600 dark:text-indigo-400">
+                      <BookOpen size={16} /> Document Summary
+                    </h5>
+                    <div className="text-xs text-slate-700 dark:text-slate-300 prose prose-sm dark:prose-invert max-w-none">
+                      <ReactMarkdown remarkPlugins={[remarkGfm]}>{summary}</ReactMarkdown>
+                    </div>
+                  </div>
+                )}
+                {notes && (
+                  <div className="p-4 bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-700">
+                    <h5 className="font-bold text-sm mb-2 flex items-center gap-2 text-amber-600 dark:text-amber-400">
+                      <FilePlus size={16} /> Study Notes
+                    </h5>
+                    <div className="text-xs text-slate-700 dark:text-slate-300 prose prose-sm dark:prose-invert max-w-none">
+                      <ReactMarkdown remarkPlugins={[remarkGfm]}>{notes}</ReactMarkdown>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
           </div>
         )}
       </Card>
