@@ -13,8 +13,19 @@ jobs:
       - name: Hit Deep Health Ping Endpoint
         id: ping
         run: |
-          # Fails the step if the HTTP status is not 200/2xx or connection times out
-          curl -f -s -S --max-time 10 "${{ secrets.RENDER_EXTERNAL_URL }}/api/v2/health/deep-ping"
+          # Render Free Tier cold-starts can take 30-90s.
+          # Retry up to 3 times with a generous timeout to handle this.
+          for i in 1 2 3; do
+            echo "Attempt $i/3..."
+            if curl -f -s -S --max-time 120 "${{ secrets.RENDER_EXTERNAL_URL }}/api/v2/health/deep-ping"; then
+              echo "✅ Server is healthy!"
+              exit 0
+            fi
+            echo "⚠️ Attempt $i failed. Waiting 10s before retry..."
+            sleep 10
+          done
+          echo "❌ All 3 attempts failed."
+          exit 1
           
       - name: Send Telegram Alert on Failure
         if: failure()
