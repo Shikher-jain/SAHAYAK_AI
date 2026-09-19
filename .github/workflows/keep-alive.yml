@@ -13,8 +13,13 @@ jobs:
       - name: Hit Deep Health Ping Endpoint
         id: ping
         run: |
+          BASE_URL="${{ secrets.RENDER_EXTERNAL_URL }}"
+          if [ -z "$BASE_URL" ]; then
+            BASE_URL="https://sahayak-backend.onrender.com"
+          fi
+
           # Fails the step if the HTTP status is not 200/2xx or connection times out
-          curl -f -s -S --max-time 10 "${{ secrets.RENDER_EXTERNAL_URL }}/api/v2/health/deep-ping"
+          curl -f -s -S --max-time 10 "${BASE_URL%/}/api/v2/health/deep-ping"
           
       - name: Send Telegram Alert on Failure
         if: failure()
