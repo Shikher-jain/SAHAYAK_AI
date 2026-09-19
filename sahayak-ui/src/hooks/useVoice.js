@@ -13,7 +13,7 @@ const SpeechRec = window.SpeechRecognition || window.webkitSpeechRecognition || 
 export const useVoice = ({ onTranscript, lang = 'en-US' } = {}) => {
   const [listening, setListening] = useState(false);
   const [speaking, setSpeaking]   = useState(false);
-  const [supported, setSupported] = useState(!!SpeechRec);
+  const [supported] = useState(!!SpeechRec);
   const recRef = useRef(null);
 
   // ─── STT: Start listening ──────────────────────────────────────────────────
